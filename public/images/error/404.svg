@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 250" fill="none" class="w-full max-w-sm mx-auto">
+  <rect width="400" height="250" rx="16" fill="#f1f5f9"/>
+  <circle cx="200" cy="110" r="50" fill="#e2e8f0"/>
+  <text x="200" y="125" font-family="system-ui, sans-serif" font-size="42" font-weight="bold" fill="#0284c7" text-anchor="middle">404</text>
+  <rect x="140" y="175" width="120" height="8" rx="4" fill="#cbd5e1"/>
+  <rect x="170" y="192" width="60" height="6" rx="3" fill="#cbd5e1"/>
+</svg>
