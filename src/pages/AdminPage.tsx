@@ -70,9 +70,12 @@ import { format } from 'date-fns';
 type RawCollection = 'products' | 'services' | 'transactions' | 'expenses' | 'profiles';
 
 export default function AdminPage() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dbStats, setDbStats] = useState<DatabaseStatsSummary | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>(() =>
+    getRawCollectionData('profiles') as Profile[]
+  );
+  const [dbStats, setDbStats] = useState<DatabaseStatsSummary>(() =>
+    getDatabaseStatsSummary()
+  );
   const [rawModalOpen, setRawModalOpen] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<RawCollection>('products');
   const [rawJson, setRawJson] = useState('');
@@ -81,49 +84,59 @@ export default function AdminPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { profile, signInWithUsername } = useAuth();
+  const { profile, loading: authLoading, signInWithUsername } = useAuth();
+  const profileId = profile?.id;
+  const profileRole = profile?.role;
+
+  const refreshLocalView = () => {
+    setProfiles(getRawCollectionData('profiles') as Profile[]);
+    setDbStats(getDatabaseStatsSummary());
+  };
+
+  const triggerCloudSync = () => {
+    getAllProfiles()
+      .then((data) => {
+        setProfiles(data);
+        refreshDbStats();
+      })
+      .catch((error) => console.error('Error loading admin profiles:', error));
+    getAllProducts().catch(console.warn);
+    getAllServices().catch(console.warn);
+    getTransactions(500).catch(console.warn);
+    getExpenses(500).catch(console.warn);
+  };
 
   useEffect(() => {
-    if (profile && profile.role === 'admin') {
-      loadData();
+    if (profileRole === 'admin') {
+      refreshLocalView();
+      triggerCloudSync();
 
-      const handleUpdate = () => loadData();
-      const handleStatsUpdate = () => refreshDbStats();
-      window.addEventListener('profiles-updated', handleUpdate);
-      window.addEventListener('products-updated', handleStatsUpdate);
-      window.addEventListener('services-updated', handleStatsUpdate);
-      window.addEventListener('transactions-updated', handleStatsUpdate);
-      window.addEventListener('expenses-updated', handleStatsUpdate);
-      window.addEventListener('storage', handleUpdate);
-      window.addEventListener('focus', handleUpdate);
+      const handleProfilesEvent = () => refreshLocalView();
+      const handleStatsEvent = () => refreshDbStats();
+      const handleFocus = () => triggerCloudSync();
+
+      window.addEventListener('profiles-updated', handleProfilesEvent);
+      window.addEventListener('products-updated', handleStatsEvent);
+      window.addEventListener('services-updated', handleStatsEvent);
+      window.addEventListener('transactions-updated', handleStatsEvent);
+      window.addEventListener('expenses-updated', handleStatsEvent);
+      window.addEventListener('storage', handleProfilesEvent);
+      window.addEventListener('focus', handleFocus);
       return () => {
-        window.removeEventListener('profiles-updated', handleUpdate);
-        window.removeEventListener('products-updated', handleStatsUpdate);
-        window.removeEventListener('services-updated', handleStatsUpdate);
-        window.removeEventListener('transactions-updated', handleStatsUpdate);
-        window.removeEventListener('expenses-updated', handleStatsUpdate);
-        window.removeEventListener('storage', handleUpdate);
-        window.removeEventListener('focus', handleUpdate);
+        window.removeEventListener('profiles-updated', handleProfilesEvent);
+        window.removeEventListener('products-updated', handleStatsEvent);
+        window.removeEventListener('services-updated', handleStatsEvent);
+        window.removeEventListener('transactions-updated', handleStatsEvent);
+        window.removeEventListener('expenses-updated', handleStatsEvent);
+        window.removeEventListener('storage', handleProfilesEvent);
+        window.removeEventListener('focus', handleFocus);
       };
     }
-  }, [profile]);
+  }, [profileId, profileRole]);
 
   const loadData = async () => {
-    try {
-      const data = await getAllProfiles();
-      setProfiles(data);
-      // Trigger background sync for all collections so Admin DB stats & raw viewer reflect cloud state
-      getAllProducts().catch(console.warn);
-      getAllServices().catch(console.warn);
-      getTransactions(500).catch(console.warn);
-      getExpenses(500).catch(console.warn);
-      refreshDbStats();
-    } catch (error) {
-      console.error('Error loading admin data:', error);
-      toast.error('Failed to load users');
-    } finally {
-      setLoading(false);
-    }
+    refreshLocalView();
+    triggerCloudSync();
   };
 
   const refreshDbStats = () => {
@@ -237,7 +250,30 @@ export default function AdminPage() {
     toast.success('Raw JSON copied to clipboard');
   };
 
-  if (profile && profile.role !== 'admin') {
+  if (authLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
+          <p className="text-muted-foreground">Manage users and system settings</p>
+        </div>
+        <Card className="border-2 border-border">
+          <CardHeader>
+            <Skeleton className="h-6 w-48 bg-muted" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-12 w-full bg-muted" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!profile || profile.role !== 'admin') {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
         <Card className="max-w-md w-full border-2 border-indigo-500/40 rounded-2xl shadow-lg bg-card">
@@ -248,7 +284,13 @@ export default function AdminPage() {
             <div>
               <h3 className="text-xl font-bold">Admin Privileges Required</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                You are currently signed in as <span className="font-semibold text-foreground">{profile.username}</span> ({profile.role}). Only administrators can view user management and cloud database controls.
+                {profile ? (
+                  <>
+                    You are currently signed in as <span className="font-semibold text-foreground">{profile.username}</span> ({profile.role}). Only administrators can view user management and cloud database controls.
+                  </>
+                ) : (
+                  'Sign in as an administrator to view user management and cloud database controls.'
+                )}
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full pt-2">
@@ -273,29 +315,6 @@ export default function AdminPage() {
               >
                 Go to Dashboard
               </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
-          <p className="text-muted-foreground">Manage users and system settings</p>
-        </div>
-        <Card className="border-2 border-border">
-          <CardHeader>
-            <Skeleton className="h-6 w-48 bg-muted" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-12 w-full bg-muted" />
-              ))}
             </div>
           </CardContent>
         </Card>
@@ -385,9 +404,11 @@ export default function AdminPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {user.created_at
-                        ? format(new Date(user.created_at), 'MMM dd, yyyy')
-                        : 'Recent'}
+                      {(() => {
+                        if (!user.created_at) return 'Recent';
+                        const d = new Date(user.created_at);
+                        return isNaN(d.getTime()) ? 'Recent' : format(d, 'MMM dd, yyyy');
+                      })()}
                     </TableCell>
                     <TableCell>
                       {profile && user.id !== profile.id ? (

@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (stored) {
         const parsed = JSON.parse(stored) as User;
         setUser(parsed);
-        await syncProfile(parsed.id);
+        await syncProfile(parsed.id, parsed.username);
       } else if (!localStorage.getItem(LOGGED_OUT_KEY)) {
         // Default login as admin only on initial boot before any explicit logout
         const profiles = await getAllProfiles();
@@ -122,11 +122,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const syncProfile = async (userId: string) => {
+  const syncProfile = async (userId: string, usernameFallback?: string) => {
     const profiles = await getAllProfiles();
-    const found = profiles.find((p) => p.id === userId);
+    let found = profiles.find((p) => p.id === userId);
+    if (!found && usernameFallback) {
+      found = profiles.find(
+        (p) => p.username.toLowerCase() === usernameFallback.toLowerCase()
+      );
+      if (found) {
+        const syncedUser = { id: found.id, username: found.username };
+        setUser(syncedUser);
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(syncedUser));
+      }
+    }
     if (found) {
       setProfile(found);
+    } else if (profiles.length > 0) {
+      // Fallback to cloud before clearing stale session
+      const cloudProfiles = await fetchProfilesFromCloud();
+      const cloudFound =
+        cloudProfiles.find((p) => p.id === userId) ||
+        (usernameFallback
+          ? cloudProfiles.find(
+              (p) => p.username.toLowerCase() === usernameFallback.toLowerCase()
+            )
+          : undefined);
+      if (cloudFound) {
+        const syncedUser = { id: cloudFound.id, username: cloudFound.username };
+        setUser(syncedUser);
+        setProfile(cloudFound);
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(syncedUser));
+      } else {
+        localStorage.removeItem(CURRENT_USER_KEY);
+        setUser(null);
+        setProfile(null);
+      }
     }
   };
 

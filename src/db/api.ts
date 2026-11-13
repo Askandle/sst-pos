@@ -490,45 +490,47 @@ initializeLocalStorage();
 // Validate Firestore connection on startup, seed only if database is completely empty, and attach live listeners
 async function initializeFirestoreSync() {
   try {
-    const isOnline = await withTimeout(testFirestoreConnection(), 5000);
-    if (!isOnline) {
-      startRealtimeListeners();
-      return;
-    }
+    // Run initial connection check in parallel so listeners attach immediately
+    const connPromise = withTimeout(testFirestoreConnection(), 5000);
 
     if (!localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
-      const [productsSnap, profilesSnap, servicesSnap] = await withTimeout(
-        Promise.all([
-          getDocs(collection(db, 'products')),
-          getDocs(collection(db, 'profiles')),
-          getDocs(collection(db, 'services')),
-        ]),
-        5000
-      );
+      const isOnline = await connPromise;
+      if (isOnline) {
+        const [productsSnap, profilesSnap, servicesSnap] = await withTimeout(
+          Promise.all([
+            getDocs(collection(db, 'products')),
+            getDocs(collection(db, 'profiles')),
+            getDocs(collection(db, 'services')),
+          ]),
+          5000
+        );
 
-      if (productsSnap.empty && profilesSnap.empty && servicesSnap.empty) {
-        const batch = writeBatch(db);
+        if (productsSnap.empty && profilesSnap.empty && servicesSnap.empty) {
+          const batch = writeBatch(db);
 
-        for (const p of INITIAL_PROFILES) {
-          batch.set(doc(db, 'profiles', p.id), p);
-        }
-        for (const s of INITIAL_SERVICES) {
-          batch.set(doc(db, 'services', s.id), s);
-        }
-        for (const pr of INITIAL_PRODUCTS) {
-          batch.set(doc(db, 'products', pr.id), pr);
-        }
-        for (const e of INITIAL_EXPENSES) {
-          batch.set(doc(db, 'expenses', e.id), e);
-        }
-        for (const t of INITIAL_TRANSACTIONS) {
-          batch.set(doc(db, 'transactions', t.id), t);
-        }
+          for (const p of INITIAL_PROFILES) {
+            batch.set(doc(db, 'profiles', p.id), p);
+          }
+          for (const s of INITIAL_SERVICES) {
+            batch.set(doc(db, 'services', s.id), s);
+          }
+          for (const pr of INITIAL_PRODUCTS) {
+            batch.set(doc(db, 'products', pr.id), pr);
+          }
+          for (const e of INITIAL_EXPENSES) {
+            batch.set(doc(db, 'expenses', e.id), e);
+          }
+          for (const t of INITIAL_TRANSACTIONS) {
+            batch.set(doc(db, 'transactions', t.id), t);
+          }
 
-        await batch.commit();
-        console.log('Firestore successfully seeded with initial S.S.T POS data.');
+          await batch.commit();
+          console.log('Firestore successfully seeded with initial S.S.T POS data.');
+        }
+        localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
       }
-      localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
+    } else {
+      connPromise.catch(() => false);
     }
 
     // Start live real-time Firestore subscriptions across all devices
