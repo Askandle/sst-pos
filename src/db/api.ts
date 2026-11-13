@@ -24,13 +24,13 @@ import {
 } from 'firebase/firestore';
 
 const STORAGE_KEYS = {
-  PROFILES: 'netpos_profiles',
-  PRODUCTS: 'netpos_products',
-  SERVICES: 'netpos_services',
-  EXPENSES: 'netpos_expenses',
-  TRANSACTIONS: 'netpos_transactions',
-  INITIALIZED: 'netpos_initialized',
-  FIRESTORE_SYNCED: 'netpos_firestore_synced',
+  PROFILES: 'SST POS_profiles',
+  PRODUCTS: 'SST POS_products',
+  SERVICES: 'SST POS_services',
+  EXPENSES: 'SST POS_expenses',
+  TRANSACTIONS: 'SST POS_transactions',
+  INITIALIZED: 'SST POS_initialized',
+  FIRESTORE_SYNCED: 'SST POS_firestore_synced',
 };
 
 // Seed initial internet cafe data
@@ -865,7 +865,7 @@ export function exportDatabaseBackup(): string {
   const payload = {
     version: '1.0.0',
     exported_at: new Date().toISOString(),
-    system: 'NetPOS Internet Cafe System',
+    system: 'SST POS Internet Cafe System',
     collections: {
       profiles: getItem<Profile[]>(STORAGE_KEYS.PROFILES, []),
       products: getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []),

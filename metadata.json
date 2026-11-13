@@ -1,5 +1,5 @@
 {
-  "name": "NetPOS - Internet Cafe POS System",
+  "name": "SST POS - Sanyali School Of Technology Pos System",
   "description": "Full-featured point of sale and management system for internet cafes and business centers.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -7,7 +7,7 @@ interface PageMetaProps {
 
 export default function PageMeta({ title, description }: PageMetaProps) {
   React.useEffect(() => {
-    document.title = title ? `${title} | NetPOS` : 'NetPOS - Internet Cafe POS System';
+    document.title = title ? `${title} | SST POS` : 'SST POS - Sanyali School Of Technology Pos System';
     if (description) {
       const meta = document.querySelector('meta[name="description"]');
       if (meta) {
