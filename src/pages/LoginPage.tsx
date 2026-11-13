@@ -135,7 +135,7 @@ export default function LoginPage() {
                   <Input
                     id="login-username"
                     type="text"
-                    placeholder="Enter your username (e.g. admin)"
+                    placeholder="Enter your username"
                     value={loginUsername}
                     onChange={(e) => setLoginUsername(e.target.value)}
                     disabled={isLoading}
@@ -156,11 +156,6 @@ export default function LoginPage() {
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Login
                 </Button>
-                <div className="pt-2">
-                  <p className="text-xs text-muted-foreground text-center">
-                    Default credentials: <span className="font-semibold text-foreground">admin</span> / <span className="font-mono font-semibold text-foreground">admin123</span> or <span className="font-semibold text-foreground">sarah_pos</span> / <span className="font-mono font-semibold text-foreground">staff123</span>
-                  </p>
-                </div>
               </form>
             </TabsContent>
 
