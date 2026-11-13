@@ -1,4 +1,4 @@
-# NetPOS - Internet Cafe Point of Sale & Management System
+# S.S.T POS - Sanyali School of Technology Point of Sale & Management System
 
 A modern, full-featured Point of Sale (POS) and management web application tailored for internet cafes, gaming centers, and business document services. Built with React 19, TypeScript, Tailwind CSS v4, and Vite.
 
