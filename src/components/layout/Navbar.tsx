@@ -98,7 +98,7 @@ export default function Navbar() {
               <Monitor className="h-5 w-5" />
             </div>
             <span className="text-lg font-bold tracking-tight text-foreground whitespace-nowrap">
-              SST POS
+              S.S.T POS
             </span>
           </Link>
 

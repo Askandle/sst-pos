@@ -94,8 +94,8 @@ export default function LoginPage() {
               <Store className="h-8 w-8 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">Internet Cafe POS</CardTitle>
-          <CardDescription>Sign in to access the system</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">S.S.T POS</CardTitle>
+          <CardDescription>Sanyali School of Technology — Sign in to access the system</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
