@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "User account profile and role in the POS system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "username": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "role": { "type": "string", "enum": ["staff", "admin"] },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "username", "role", "created_at"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Retail item in the internet cafe inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 500 },
+        "price": { "type": "number" },
+        "stock_quantity": { "type": "number" },
+        "category": { "type": "string", "maxLength": 80 },
+        "image_url": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "stock_quantity", "category", "created_at"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Internet cafe hourly rental or document processing service",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "base_price": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 50 },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "name", "base_price", "unit", "created_at"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Daily store expense entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "staff_id": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "enum": ["supplies", "utilities", "maintenance", "other"] },
+        "description": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "amount": { "type": "number" },
+        "expense_date": { "type": "string", "maxLength": 30 },
+        "receipt_notes": { "type": "string", "maxLength": 500 },
+        "created_at": { "type": "string" },
+        "staff": { "type": "object" }
+      },
+      "required": ["id", "category", "description", "amount", "expense_date", "created_at"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "POS checkout record for services or retail products",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "transaction_number": { "type": "string", "maxLength": 80 },
+        "user_id": { "type": "string", "maxLength": 128 },
+        "staff": { "type": "object" },
+        "transaction_type": { "type": "string", "maxLength": 50 },
+        "total_amount": { "type": "number" },
+        "payment_method": { "type": "string", "enum": ["cash", "card", "mobile"] },
+        "status": { "type": "string", "enum": ["completed", "refunded"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "created_at": { "type": "string" },
+        "items": { "type": "array" }
+      },
+      "required": ["id", "transaction_number", "transaction_type", "total_amount", "payment_method", "status", "created_at"]
+    }
+  },
+  "firestore": {
+    "/profiles/{profileId}": {
+      "schema": { "$ref": "#/entities/Profile" },
+      "description": "User profiles and role access"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Store products and inventory"
+    },
+    "/services/{serviceId}": {
+      "schema": { "$ref": "#/entities/Service" },
+      "description": "Internet cafe service offerings"
+    },
+    "/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Daily store operating expenses"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Completed transaction records and line items"
+    }
+  }
+}

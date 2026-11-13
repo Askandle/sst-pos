@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection test document
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Profiles Collection
+    match /profiles/{profileId} {
+      allow read: if isValidId(profileId);
+      allow write: if isValidId(profileId);
+    }
+
+    // Products Collection
+    match /products/{productId} {
+      allow read: if isValidId(productId);
+      allow write: if isValidId(productId);
+    }
+
+    // Services Collection
+    match /services/{serviceId} {
+      allow read: if isValidId(serviceId);
+      allow write: if isValidId(serviceId);
+    }
+
+    // Expenses Collection
+    match /expenses/{expenseId} {
+      allow read: if isValidId(expenseId);
+      allow write: if isValidId(expenseId);
+    }
+
+    // Transactions Collection
+    match /transactions/{transactionId} {
+      allow read: if isValidId(transactionId);
+      allow write: if isValidId(transactionId);
+    }
+  }
+}

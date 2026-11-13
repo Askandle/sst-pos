@@ -76,7 +76,7 @@ export interface Transaction {
   total_amount: number;
   payment_method: PaymentMethod;
   status: 'completed' | 'refunded';
-  notes?: string;
+  notes?: string | null;
   created_at: string;
 }
 

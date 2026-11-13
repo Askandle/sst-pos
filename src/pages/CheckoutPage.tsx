@@ -95,12 +95,14 @@ export default function CheckoutPage() {
         calculateTotal(),
         paymentMethod,
         items,
-        notes || undefined
+        notes?.trim() || undefined
       );
 
-      toast.success('Transaction completed successfully!');
       sessionStorage.removeItem('cart');
       window.dispatchEvent(new Event('cart-updated'));
+      window.dispatchEvent(new Event('transactions-updated'));
+      window.dispatchEvent(new Event('storage'));
+      toast.success('Transaction completed successfully!');
       navigate('/transactions');
     } catch (error) {
       console.error('Checkout error:', error);

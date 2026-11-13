@@ -59,6 +59,18 @@ export default function ProductsPage() {
 
   useEffect(() => {
     loadProducts();
+
+    const handleUpdate = () => {
+      loadProducts();
+    };
+    window.addEventListener('products-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    return () => {
+      window.removeEventListener('products-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+    };
   }, []);
 
   const loadProducts = async () => {
@@ -473,9 +485,49 @@ export default function ProductsPage() {
                     </div>
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  {isAdmin ? (
-                    <div className="flex gap-2">
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => updateQuantity(product.id, -1, product.stock_quantity)}
+                      disabled={(quantities[product.id] || 0) === 0}
+                      className="border-2 border-emerald-500/35 hover:border-emerald-500 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      min="0"
+                      max={product.stock_quantity}
+                      value={quantities[product.id] || 0}
+                      onChange={(e) =>
+                        setQuantity(
+                          product.id,
+                          parseInt(e.target.value) || 0,
+                          product.stock_quantity
+                        )
+                      }
+                      className="text-center border-2 border-emerald-500/35 focus-visible:ring-emerald-500 tabular-nums font-semibold rounded-lg"
+                      disabled={product.stock_quantity === 0}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => updateQuantity(product.id, 1, product.stock_quantity)}
+                      disabled={(quantities[product.id] || 0) >= product.stock_quantity}
+                      className="border-2 border-emerald-500/35 hover:border-emerald-500 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {(quantities[product.id] || 0) > 0 && (
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 font-semibold text-center tabular-nums">
+                      Subtotal: GH₵{((quantities[product.id] || 0) * product.price).toFixed(2)}
+                    </p>
+                  )}
+                  {isAdmin && (
+                    <div className="flex gap-2 pt-2 border-t border-border">
                       <Button
                         variant="outline"
                         size="sm"
@@ -498,49 +550,6 @@ export default function ProductsPage() {
                         Delete
                       </Button>
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => updateQuantity(product.id, -1, product.stock_quantity)}
-                          disabled={(quantities[product.id] || 0) === 0}
-                          className="border-2 border-emerald-500/35 hover:border-emerald-500 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <Input
-                          type="number"
-                          min="0"
-                          max={product.stock_quantity}
-                          value={quantities[product.id] || 0}
-                          onChange={(e) =>
-                            setQuantity(
-                              product.id,
-                              parseInt(e.target.value) || 0,
-                              product.stock_quantity
-                            )
-                          }
-                          className="text-center border-2 border-emerald-500/35 focus-visible:ring-emerald-500 tabular-nums font-semibold rounded-lg"
-                          disabled={product.stock_quantity === 0}
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => updateQuantity(product.id, 1, product.stock_quantity)}
-                          disabled={(quantities[product.id] || 0) >= product.stock_quantity}
-                          className="border-2 border-emerald-500/35 hover:border-emerald-500 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      {(quantities[product.id] || 0) > 0 && (
-                        <p className="text-sm text-emerald-600 dark:text-emerald-400 font-semibold text-center tabular-nums">
-                          Subtotal: GH₵{((quantities[product.id] || 0) * product.price).toFixed(2)}
-                        </p>
-                      )}
-                    </>
                   )}
                 </CardContent>
               </Card>

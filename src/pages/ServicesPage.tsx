@@ -62,6 +62,18 @@ export default function ServicesPage() {
 
   useEffect(() => {
     loadServices();
+
+    const handleUpdate = () => {
+      loadServices();
+    };
+    window.addEventListener('services-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    return () => {
+      window.removeEventListener('services-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+    };
   }, []);
 
   const loadServices = async () => {

@@ -81,7 +81,32 @@ The system comes pre-seeded with local demo accounts:
 
 ---
 
-## Project Structure
+## Database & Cloud Access
+
+NetPOS is powered by **Google Cloud Firebase Firestore** with instant real-time synchronization across multiple cashier stations, coupled with a fast offline-resilient local cache.
+
+### 1. Direct Web Console Access
+You can view, query, edit, and export records directly through the Google Cloud Firebase Console:
+- **Firebase Console URL**: [Open Firestore Database](https://console.firebase.google.com/project/gen-lang-client-0748679277/firestore/databases/ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0/data)
+- **Project ID**: `gen-lang-client-0748679277`
+- **Database ID**: `ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0`
+
+### 2. Database Collections
+The database is organized into 5 structured collections:
+- `products`: Retail inventory items (name, description, price in `GH₵`, stock quantity, category, image URL).
+- `services`: Internet cafe billable services (PC rental per hour, VIP gaming, printing, scanning, lamination).
+- `transactions`: Completed checkout audit trails (itemized order lines, total amount, payment method, cashier profile, timestamp).
+- `expenses`: Store operational costs (category, description, amount, receipt details, date).
+- `profiles`: Cashier and administrator user accounts with RBAC roles (`admin`, `staff`).
+
+### 3. In-App Admin Management & Backups
+Inside the app at the **Admin Panel** (`/admin`):
+- **Download Database Backup**: Exports your entire database as a clean `.json` file anytime.
+- **Import / Restore Backup**: Upload a previously saved `.json` file to restore or migrate data.
+- **View Raw Collections JSON**: Inspect live document schemas and raw JSON directly in an interactive browser modal.
+- **Direct Link**: A 1-click button to open the live Google Cloud Console directly from the Admin screen.
+
+---
 
 ```text
 ├── public/                 # Static assets and icons

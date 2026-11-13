@@ -58,6 +58,18 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     loadExpenses();
+
+    const handleUpdate = () => {
+      loadExpenses();
+    };
+    window.addEventListener('expenses-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    return () => {
+      window.removeEventListener('expenses-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+    };
   }, []);
 
   const loadExpenses = async () => {

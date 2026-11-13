@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { getTransactions } from '@/db/api';
 import type { TransactionWithItems } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +14,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -20,7 +31,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Eye, Receipt } from 'lucide-react';
+import { Eye, Receipt, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 export default function TransactionsPage() {
@@ -28,13 +40,43 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionWithItems | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [txnToDelete, setTxnToDelete] = useState<TransactionWithItems | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
 
   useEffect(() => {
     loadTransactions();
+
+    const handleUpdate = () => {
+      loadTransactions();
+    };
+
+    window.addEventListener('transactions-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    return () => {
+      window.removeEventListener('transactions-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+    };
   }, []);
 
   const loadTransactions = async () => {
     try {
+      const local = localStorage.getItem('netpos_transactions');
+      if (local) {
+        try {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed)) {
+            setTransactions(parsed);
+            setLoading(false);
+            return;
+          }
+        } catch {}
+      }
+
       const data = await getTransactions(100);
       setTransactions(data);
     } catch (error) {
@@ -49,18 +91,64 @@ export default function TransactionsPage() {
     setDetailsOpen(true);
   };
 
+  const confirmDelete = (transaction: TransactionWithItems) => {
+    setTxnToDelete(transaction);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleExecuteDeleteTxn = async () => {
+    if (!txnToDelete) return;
+    const targetId = txnToDelete.id;
+    const targetNum = txnToDelete.transaction_number;
+
+    try {
+      // 1. Immediately remove from React state so UI updates instantly
+      const remaining = transactions.filter((t) => t.id !== targetId);
+      setTransactions(remaining);
+      setDeleteConfirmOpen(false);
+      setDetailsOpen(false);
+      setTxnToDelete(null);
+
+      // 2. Persist to localStorage immediately
+      try {
+        localStorage.setItem('netpos_transactions', JSON.stringify(remaining));
+        window.dispatchEvent(new Event('transactions-updated'));
+        window.dispatchEvent(new Event('storage'));
+      } catch (err) {
+        console.error('Storage write error:', err);
+      }
+
+      // 3. Delete from Firestore in cloud
+      try {
+        const { deleteDoc, doc } = await import('firebase/firestore');
+        const { db } = await import('@/lib/firebase');
+        await deleteDoc(doc(db, 'transactions', targetId));
+      } catch (cloudErr) {
+        console.warn('Firestore transaction delete sync notice:', cloudErr);
+      }
+
+      toast.success(`Transaction "${targetNum}" deleted successfully`);
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      toast.error('Failed to delete transaction');
+      loadTransactions();
+    }
+  };
+
   const getPaymentMethodBadge = (method: string) => {
     const variants: Record<string, 'default' | 'secondary' | 'outline'> = {
       cash: 'default',
       card: 'secondary',
-      mobile: 'outline'
+      mobile: 'outline',
     };
     return <Badge variant={variants[method] || 'default'}>{method.toUpperCase()}</Badge>;
   };
 
   const getStatusBadge = (status: string) => {
     return status === 'completed' ? (
-      <Badge variant="default" className="bg-success text-success-foreground">Completed</Badge>
+      <Badge variant="default" className="bg-success text-success-foreground">
+        Completed
+      </Badge>
     ) : (
       <Badge variant="destructive">Refunded</Badge>
     );
@@ -73,7 +161,7 @@ export default function TransactionsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Transactions</h1>
           <p className="text-muted-foreground">View transaction history</p>
         </div>
-        <Card>
+        <Card className="border-2 border-sky-500/35">
           <CardHeader>
             <Skeleton className="h-6 w-48 bg-muted" />
           </CardHeader>
@@ -91,9 +179,21 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Transactions</h1>
-        <p className="text-muted-foreground">View transaction history</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Transactions</h1>
+          <p className="text-muted-foreground">Audit sales and payment records</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="border-2 border-sky-500/40 text-foreground font-mono">
+            {transactions.length} Total Records
+          </Badge>
+          {isAdmin && (
+            <Badge className="bg-primary/10 text-primary border-2 border-primary/30">
+              Admin Controls Enabled
+            </Badge>
+          )}
+        </div>
       </div>
 
       <Card className="border-2 border-sky-500/35 dark:border-sky-400/35 rounded-xl shadow-xs overflow-hidden">
@@ -126,7 +226,7 @@ export default function TransactionsPage() {
                 ) : (
                   transactions.map((transaction) => (
                     <TableRow key={transaction.id}>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-xs font-semibold">
                         {transaction.transaction_number}
                       </TableCell>
                       <TableCell>
@@ -134,21 +234,38 @@ export default function TransactionsPage() {
                       </TableCell>
                       <TableCell>{transaction.staff?.username || 'N/A'}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="capitalize">{transaction.transaction_type}</Badge>
+                        <Badge variant="outline" className="capitalize">
+                          {transaction.transaction_type}
+                        </Badge>
                       </TableCell>
                       <TableCell>{getPaymentMethodBadge(transaction.payment_method)}</TableCell>
-                      <TableCell className="font-semibold tabular-nums">
+                      <TableCell className="font-semibold tabular-nums text-foreground">
                         GH₵{transaction.total_amount.toFixed(2)}
                       </TableCell>
                       <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => viewDetails(transaction)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => viewDetails(transaction)}
+                            title="View receipt details"
+                            className="h-8 px-2.5 text-xs font-medium border-2 border-border hover:border-sky-500/60 rounded-lg cursor-pointer flex items-center gap-1"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => confirmDelete(transaction)}
+                            title={`Delete transaction ${transaction.transaction_number}`}
+                            className="h-8 px-2.5 text-xs font-semibold border-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive rounded-lg cursor-pointer flex items-center gap-1 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -159,6 +276,7 @@ export default function TransactionsPage() {
         </CardContent>
       </Card>
 
+      {/* Transaction Details Modal */}
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto border-2 border-sky-500/35 dark:border-sky-400/35 rounded-2xl shadow-xl">
           <DialogHeader>
@@ -225,16 +343,61 @@ export default function TransactionsPage() {
                 </Table>
               </div>
 
-              <div className="flex justify-between items-center pt-4 border-t border-border">
-                <span className="text-lg font-semibold">Total Paid</span>
-                <span className="text-2xl font-bold tabular-nums text-foreground">
-                  GH₵{selectedTransaction.total_amount.toFixed(2)}
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-border">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    confirmDelete(selectedTransaction);
+                  }}
+                  className="border-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive font-medium cursor-pointer w-full sm:w-auto"
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  Delete Transaction Record
+                </Button>
+                <div className="flex items-center justify-between sm:justify-end gap-3 ml-auto">
+                  <span className="text-lg font-semibold">Total Paid</span>
+                  <span className="text-2xl font-bold tabular-nums text-foreground">
+                    GH₵{selectedTransaction.total_amount.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Transaction Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent className="border-2 border-destructive/40 rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete Transaction Record?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete transaction{' '}
+              <span className="font-bold text-foreground font-mono">
+                "{txnToDelete?.transaction_number}"
+              </span>{' '}
+              worth{' '}
+              <span className="font-semibold text-foreground">
+                GH₵{txnToDelete?.total_amount.toFixed(2)}
+              </span>
+              ? This action cannot be undone and will permanently remove this transaction from the records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setTxnToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleExecuteDeleteTxn}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold cursor-pointer"
+            >
+              Delete Transaction
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

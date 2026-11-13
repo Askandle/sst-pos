@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getDashboardStats, getLowStockProducts } from '@/db/api';
-import type { DashboardStats, Product } from '@/types';
+import type { DashboardStats, Product, TransactionWithItems } from '@/types';
 import { DollarSign, ShoppingCart, TrendingDown, AlertTriangle } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -14,16 +13,75 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData();
+
+    window.addEventListener('storage', loadDashboardData);
+    window.addEventListener('focus', loadDashboardData);
+    window.addEventListener('transactions-updated', loadDashboardData);
+    return () => {
+      window.removeEventListener('storage', loadDashboardData);
+      window.removeEventListener('focus', loadDashboardData);
+      window.removeEventListener('transactions-updated', loadDashboardData);
+    };
   }, []);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = () => {
     try {
-      const [statsData, lowStockData] = await Promise.all([
-        getDashboardStats(),
-        getLowStockProducts(10)
-      ]);
-      setStats(statsData);
-      setLowStockProducts(lowStockData);
+      const today = new Date().toISOString().split('T')[0];
+
+      // 1. Transactions & Sales (Read directly from active localStorage)
+      let txns: TransactionWithItems[] = [];
+      try {
+        const storedTxns = localStorage.getItem('netpos_transactions');
+        if (storedTxns) {
+          txns = JSON.parse(storedTxns);
+        }
+      } catch (e) {
+        console.error('Error parsing transactions:', e);
+      }
+
+      // Filter only completed transactions that occurred today
+      const todayTxns = (txns || []).filter((t) => {
+        return Boolean(t.created_at?.startsWith(today) && t.status === 'completed');
+      });
+
+      const todaySales = todayTxns.reduce((sum, t) => sum + Number(t.total_amount || 0), 0);
+      const todayTransactions = todayTxns.length;
+
+      // 2. Expenses (Read directly from active localStorage)
+      let expenses: any[] = [];
+      try {
+        const storedExpenses = localStorage.getItem('netpos_expenses');
+        if (storedExpenses) {
+          expenses = JSON.parse(storedExpenses);
+        }
+      } catch (e) {
+        console.error('Error parsing expenses:', e);
+      }
+
+      const todayExpenses = (expenses || [])
+        .filter((e) => e.expense_date === today)
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+      // 3. Products & Low Stock
+      let products: Product[] = [];
+      try {
+        const storedProducts = localStorage.getItem('netpos_products');
+        if (storedProducts) {
+          products = JSON.parse(storedProducts);
+        }
+      } catch (e) {
+        console.error('Error parsing products:', e);
+      }
+
+      const lowStock = (products || []).filter((p) => Number(p.stock_quantity ?? 0) <= 10);
+
+      setStats({
+        todaySales,
+        todayTransactions,
+        todayExpenses,
+        lowStockProducts: lowStock.length,
+      });
+      setLowStockProducts(lowStock);
     } catch (error) {
       console.error('Error loading dashboard:', error);
     } finally {

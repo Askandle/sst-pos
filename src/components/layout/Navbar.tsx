@@ -85,9 +85,7 @@ export default function Navbar() {
     },
     { to: '/transactions', label: 'Transactions', icon: Receipt },
     { to: '/expenses', label: 'Expenses', icon: TrendingDown },
-    ...(profile?.role === 'admin'
-      ? [{ to: '/admin', label: 'Admin', icon: Shield }]
-      : []),
+    { to: '/admin', label: 'Admin', icon: Shield },
   ];
 
   return (
