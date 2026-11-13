@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { Profile, Role } from '@/types';
-import { getAllProfiles, createProfile } from '@/db/api';
+import { getAllProfiles, createProfile, updateProfilePasswordHash } from '@/db/api';
 
 interface User {
   id: string;
@@ -119,23 +119,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithUsername = async (username: string, password: string) => {
     try {
-      if (!password) {
-        return { error: new Error('Please enter your password.') };
+      const cleanUsername = username.trim();
+      if (!cleanUsername || !password) {
+        return { error: new Error('Please enter both username and password.') };
       }
 
       const profiles = await getAllProfiles();
-      const existing = profiles.find((p) => p.username.toLowerCase() === username.trim().toLowerCase());
+      const existing = profiles.find((p) => p.username.toLowerCase() === cleanUsername.toLowerCase());
 
       if (!existing) {
-        return { error: new Error('Invalid username or password.') };
+        return { error: new Error('Account not found. Please check your username or Sign Up.') };
       }
 
       const creds = await ensureSeededCredentials();
-      const storedHash = creds[existing.id];
+      const storedHash = creds[existing.id] || existing.password_hash;
       const enteredHash = await hashPassword(password);
 
-      if (!storedHash || storedHash !== enteredHash) {
+      if (!storedHash) {
+        // Account existed before password enforcement was enabled — bind password on first login
+        if (password.length < 6) {
+          return { error: new Error('Password must be at least 6 characters to secure this account.') };
+        }
+        creds[existing.id] = enteredHash;
+        saveCredentialsMap(creds);
+        updateProfilePasswordHash(existing.id, enteredHash).catch(console.warn);
+      } else if (storedHash !== enteredHash) {
         return { error: new Error('Incorrect password. Please try again.') };
+      } else if (!creds[existing.id] && existing.password_hash) {
+        creds[existing.id] = existing.password_hash;
+        saveCredentialsMap(creds);
       }
 
       const sessionUser: User = { id: existing.id, username: existing.username };
@@ -162,17 +174,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: new Error('Username already taken. Please choose another.') };
       }
 
+      const passwordHash = await hashPassword(password);
+
       // First user is admin, otherwise staff
       const role: Role = profiles.length === 0 ? 'admin' : 'staff';
       const newProfile: Profile = {
         id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         username: trimmedUsername,
         role,
+        password_hash: passwordHash,
         created_at: new Date().toISOString(),
       };
 
       const creds = await ensureSeededCredentials();
-      creds[newProfile.id] = await hashPassword(password);
+      creds[newProfile.id] = passwordHash;
       saveCredentialsMap(creds);
 
       await createProfile(newProfile);

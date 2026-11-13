@@ -11,6 +11,7 @@ import { Loader2, Store } from 'lucide-react';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [signupUsername, setSignupUsername] = useState('');
@@ -25,24 +26,31 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!loginUsername || !loginPassword) {
-      toast.error('Please fill in all fields');
+    setAuthError(null);
+
+    const cleanUsername = loginUsername.trim();
+    if (!cleanUsername || !loginPassword) {
+      const msg = 'Please fill in all fields';
+      setAuthError(msg);
+      toast.error(msg);
       return;
     }
 
-    // Validate username format
-    if (!/^[a-zA-Z0-9_]+$/.test(loginUsername)) {
-      toast.error('Username can only contain letters, numbers, and underscores');
+    if (!/^[a-zA-Z0-9_.-]+$/.test(cleanUsername)) {
+      const msg = 'Username can only contain letters, numbers, underscores, dots, or hyphens';
+      setAuthError(msg);
+      toast.error(msg);
       return;
     }
 
     setIsLoading(true);
-    const { error } = await signInWithUsername(loginUsername, loginPassword);
+    const { error } = await signInWithUsername(cleanUsername, loginPassword);
     setIsLoading(false);
 
     if (error) {
-      toast.error(error.message || 'Login failed');
+      const msg = error.message || 'Login failed';
+      setAuthError(msg);
+      toast.error(msg);
     } else {
       toast.success('Login successful!');
       navigate(from, { replace: true });
@@ -51,34 +59,45 @@ export default function LoginPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
 
-    if (!signupUsername || !signupPassword || !confirmPassword) {
-      toast.error('Please fill in all fields');
+    const cleanUsername = signupUsername.trim();
+    if (!cleanUsername || !signupPassword || !confirmPassword) {
+      const msg = 'Please fill in all fields';
+      setAuthError(msg);
+      toast.error(msg);
       return;
     }
 
-    // Validate username format
-    if (!/^[a-zA-Z0-9_]+$/.test(signupUsername)) {
-      toast.error('Username can only contain letters, numbers, and underscores');
+    if (!/^[a-zA-Z0-9_.-]+$/.test(cleanUsername)) {
+      const msg = 'Username can only contain letters, numbers, underscores, dots, or hyphens';
+      setAuthError(msg);
+      toast.error(msg);
       return;
     }
 
     if (signupPassword !== confirmPassword) {
-      toast.error('Passwords do not match');
+      const msg = 'Passwords do not match';
+      setAuthError(msg);
+      toast.error(msg);
       return;
     }
 
     if (signupPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+      const msg = 'Password must be at least 6 characters';
+      setAuthError(msg);
+      toast.error(msg);
       return;
     }
 
     setIsLoading(true);
-    const { error } = await signUpWithUsername(signupUsername, signupPassword);
+    const { error } = await signUpWithUsername(cleanUsername, signupPassword);
     setIsLoading(false);
 
     if (error) {
-      toast.error(error.message || 'Signup failed');
+      const msg = error.message || 'Signup failed';
+      setAuthError(msg);
+      toast.error(msg);
     } else {
       toast.success('Account created successfully! You are now logged in.');
       navigate(from, { replace: true });
@@ -98,7 +117,12 @@ export default function LoginPage() {
           <CardDescription>Sanyali School of Technology — Sign in to access the system</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="login" className="w-full">
+          {authError && (
+            <div className="mb-4 rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
+              {authError}
+            </div>
+          )}
+          <Tabs defaultValue="login" className="w-full" onValueChange={() => setAuthError(null)}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
@@ -153,7 +177,7 @@ export default function LoginPage() {
                     disabled={isLoading}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Only letters, numbers, and underscores allowed
+                    Letters, numbers, underscores, dots, or hyphens allowed
                   </p>
                 </div>
                 <div className="space-y-2">

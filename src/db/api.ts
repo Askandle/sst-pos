@@ -464,6 +464,16 @@ export async function updateProfileRole(userId: string, newRole: 'staff' | 'admi
   );
 }
 
+export async function updateProfilePasswordHash(userId: string, passwordHash: string): Promise<void> {
+  const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
+  const updated = profiles.map((p) => (p.id === userId ? { ...p, password_hash: passwordHash } : p));
+  setItem(STORAGE_KEYS.PROFILES, updated);
+
+  setDoc(doc(db, 'profiles', userId), { password_hash: passwordHash }, { merge: true }).catch((err) =>
+    console.warn('Firestore profile credential sync notice:', err)
+  );
+}
+
 export async function deleteProfile(userId: string): Promise<void> {
   markIdDeleted(userId);
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);

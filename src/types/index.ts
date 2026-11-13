@@ -4,6 +4,7 @@ export interface Profile {
   id: string;
   username: string;
   role: Role;
+  password_hash?: string;
   created_at: string;
 }
 
