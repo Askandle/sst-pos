@@ -18,31 +18,36 @@ service cloud.firestore {
 
     // Profiles Collection
     match /profiles/{profileId} {
-      allow read: if isValidId(profileId);
+      allow get: if isValidId(profileId);
+      allow list: if true;
       allow write: if isValidId(profileId);
     }
 
     // Products Collection
     match /products/{productId} {
-      allow read: if isValidId(productId);
+      allow get: if isValidId(productId);
+      allow list: if true;
       allow write: if isValidId(productId);
     }
 
     // Services Collection
     match /services/{serviceId} {
-      allow read: if isValidId(serviceId);
+      allow get: if isValidId(serviceId);
+      allow list: if true;
       allow write: if isValidId(serviceId);
     }
 
     // Expenses Collection
     match /expenses/{expenseId} {
-      allow read: if isValidId(expenseId);
+      allow get: if isValidId(expenseId);
+      allow list: if true;
       allow write: if isValidId(expenseId);
     }
 
     // Transactions Collection
     match /transactions/{transactionId} {
-      allow read: if isValidId(transactionId);
+      allow get: if isValidId(transactionId);
+      allow list: if true;
       allow write: if isValidId(transactionId);
     }
   }

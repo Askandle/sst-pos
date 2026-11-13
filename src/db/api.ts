@@ -18,6 +18,7 @@ import {
   collection,
   doc,
   getDocs,
+  onSnapshot,
   setDoc,
   deleteDoc,
   writeBatch,
@@ -298,6 +299,14 @@ function markIdDeleted(id: string): void {
   clearPendingWrite(id);
 }
 
+function clearDeletedId(id: string): void {
+  const ids = getDeletedIds();
+  if (ids.has(id)) {
+    ids.delete(id);
+    setItem(STORAGE_KEYS.DELETED_IDS, Array.from(ids));
+  }
+}
+
 function getPendingWrites(): Set<string> {
   const arr = getItem<string[]>(STORAGE_KEYS.PENDING_WRITES, []);
   return new Set(Array.isArray(arr) ? arr : []);
@@ -364,6 +373,30 @@ async function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
   ]);
 }
 
+function reportFirestoreNotice(err: unknown, operation: OperationType, path: string): void {
+  try {
+    handleFirestoreError(err, operation, path);
+  } catch (structuredErr) {
+    console.warn(`Firestore ${operation} notice (${path}):`, structuredErr);
+  }
+}
+
+function applyRemoteSnapshot<T extends { id: string }>(
+  remoteItems: T[],
+  storageKey: string,
+  eventName: string,
+  sortFn?: (a: T, b: T) => number
+): void {
+  const local = getItem<T[]>(storageKey, []);
+  const reconciled = reconcileWithRemote(local, remoteItems);
+  if (sortFn) reconciled.sort(sortFn);
+
+  if (JSON.stringify(reconciled) !== JSON.stringify(local)) {
+    setItem(storageKey, reconciled);
+    notifyDataUpdate(eventName);
+  }
+}
+
 function syncCollectionInBackground<T extends { id: string }>(
   collectionName: string,
   storageKey: string,
@@ -375,30 +408,70 @@ function syncCollectionInBackground<T extends { id: string }>(
   if (lastSyncTime[collectionName] && now - lastSyncTime[collectionName] < SYNC_COOLDOWN_MS) return;
 
   inflightSync[collectionName] = true;
-  lastSyncTime[collectionName] = now;
 
   withTimeout(getDocs(collection(db, collectionName)), 5000)
     .then((snapshot) => {
       // Only skip empty remote snapshot if Firestore hasn't been confirmed seeded yet
       if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) return;
+      lastSyncTime[collectionName] = Date.now();
+      localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
+
       const remoteItems: T[] = [];
       snapshot.forEach((d) => remoteItems.push(d.data() as T));
-
-      const local = getItem<T[]>(storageKey, []);
-      const reconciled = reconcileWithRemote(local, remoteItems);
-      if (sortFn) reconciled.sort(sortFn);
-
-      if (JSON.stringify(reconciled) !== JSON.stringify(local)) {
-        setItem(storageKey, reconciled);
-        notifyDataUpdate(eventName);
-      }
+      applyRemoteSnapshot(remoteItems, storageKey, eventName, sortFn);
     })
     .catch((err) => {
-      console.warn(`Background sync notice (${collectionName}):`, err?.message || err);
+      reportFirestoreNotice(err, OperationType.LIST, collectionName);
     })
     .finally(() => {
       inflightSync[collectionName] = false;
     });
+}
+
+// Track active real-time listeners so any connected device receives live Firestore updates
+let realtimeStarted = false;
+function subscribeCollectionRealtime<T extends { id: string }>(
+  collectionName: string,
+  storageKey: string,
+  eventName: string,
+  sortFn?: (a: T, b: T) => number
+): void {
+  onSnapshot(
+    collection(db, collectionName),
+    (snapshot) => {
+      if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
+        return;
+      }
+      localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
+      const remoteItems: T[] = [];
+      snapshot.forEach((d) => remoteItems.push(d.data() as T));
+      applyRemoteSnapshot(remoteItems, storageKey, eventName, sortFn);
+    },
+    (err) => {
+      reportFirestoreNotice(err, OperationType.LIST, collectionName);
+    }
+  );
+}
+
+function startRealtimeListeners(): void {
+  if (realtimeStarted) return;
+  realtimeStarted = true;
+
+  subscribeCollectionRealtime<Profile>('profiles', STORAGE_KEYS.PROFILES, 'profiles-updated');
+  subscribeCollectionRealtime<Service>('services', STORAGE_KEYS.SERVICES, 'services-updated');
+  subscribeCollectionRealtime<Product>('products', STORAGE_KEYS.PRODUCTS, 'products-updated');
+  subscribeCollectionRealtime<Expense>(
+    'expenses',
+    STORAGE_KEYS.EXPENSES,
+    'expenses-updated',
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  subscribeCollectionRealtime<TransactionWithItems>(
+    'transactions',
+    STORAGE_KEYS.TRANSACTIONS,
+    'transactions-updated',
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 }
 
 // Bootstrap local storage first
@@ -414,66 +487,60 @@ function initializeLocalStorage() {
 }
 initializeLocalStorage();
 
-// Sync Firestore on startup if empty
-async function syncFirestoreSeed() {
-  if (localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) return;
+// Validate Firestore connection on startup, seed only if database is completely empty, and attach live listeners
+async function initializeFirestoreSync() {
   try {
-    const isOnline = await withTimeout(testFirestoreConnection(), 4000);
-    if (!isOnline) return;
-
-    const productsSnap = await withTimeout(getDocs(collection(db, 'products')), 4000);
-    if (productsSnap.empty) {
-      const batch = writeBatch(db);
-
-      // Seed profiles
-      for (const p of INITIAL_PROFILES) {
-        batch.set(doc(db, 'profiles', p.id), p);
-      }
-      // Seed services
-      for (const s of INITIAL_SERVICES) {
-        batch.set(doc(db, 'services', s.id), s);
-      }
-      // Seed products
-      for (const pr of INITIAL_PRODUCTS) {
-        batch.set(doc(db, 'products', pr.id), pr);
-      }
-      // Seed expenses
-      for (const e of INITIAL_EXPENSES) {
-        batch.set(doc(db, 'expenses', e.id), e);
-      }
-      // Seed transactions
-      for (const t of INITIAL_TRANSACTIONS) {
-        batch.set(doc(db, 'transactions', t.id), t);
-      }
-
-      await batch.commit();
-      console.log('Firestore successfully seeded with initial internet cafe data.');
+    const isOnline = await withTimeout(testFirestoreConnection(), 5000);
+    if (!isOnline) {
+      startRealtimeListeners();
+      return;
     }
-    localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
 
-    // Sync all collections on boot so secondary/mobile devices quickly reflect latest cloud state
-    syncCollectionInBackground<Profile>('profiles', STORAGE_KEYS.PROFILES, 'profiles-updated');
-    syncCollectionInBackground<Service>('services', STORAGE_KEYS.SERVICES, 'services-updated');
-    syncCollectionInBackground<Product>('products', STORAGE_KEYS.PRODUCTS, 'products-updated');
-    syncCollectionInBackground<Expense>(
-      'expenses',
-      STORAGE_KEYS.EXPENSES,
-      'expenses-updated',
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    syncCollectionInBackground<TransactionWithItems>(
-      'transactions',
-      STORAGE_KEYS.TRANSACTIONS,
-      'transactions-updated',
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    if (!localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
+      const [productsSnap, profilesSnap, servicesSnap] = await withTimeout(
+        Promise.all([
+          getDocs(collection(db, 'products')),
+          getDocs(collection(db, 'profiles')),
+          getDocs(collection(db, 'services')),
+        ]),
+        5000
+      );
+
+      if (productsSnap.empty && profilesSnap.empty && servicesSnap.empty) {
+        const batch = writeBatch(db);
+
+        for (const p of INITIAL_PROFILES) {
+          batch.set(doc(db, 'profiles', p.id), p);
+        }
+        for (const s of INITIAL_SERVICES) {
+          batch.set(doc(db, 'services', s.id), s);
+        }
+        for (const pr of INITIAL_PRODUCTS) {
+          batch.set(doc(db, 'products', pr.id), pr);
+        }
+        for (const e of INITIAL_EXPENSES) {
+          batch.set(doc(db, 'expenses', e.id), e);
+        }
+        for (const t of INITIAL_TRANSACTIONS) {
+          batch.set(doc(db, 'transactions', t.id), t);
+        }
+
+        await batch.commit();
+        console.log('Firestore successfully seeded with initial S.S.T POS data.');
+      }
+      localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
+    }
+
+    // Start live real-time Firestore subscriptions across all devices
+    startRealtimeListeners();
   } catch (err) {
-    console.warn('Firestore initial sync notice:', err);
+    reportFirestoreNotice(err, OperationType.GET, 'test/connection');
+    startRealtimeListeners();
   }
 }
 
-// Trigger background sync
-syncFirestoreSeed();
+// Trigger startup connection check & live real-time sync
+initializeFirestoreSync();
 
 // --- Profiles ---
 export async function getAllProfiles(): Promise<Profile[]> {
@@ -563,9 +630,9 @@ export async function deleteProfile(userId: string): Promise<void> {
 
   notifyDataUpdate('profiles-updated');
 
-  deleteDoc(doc(db, 'profiles', userId)).catch((err) =>
-    console.warn('Firestore profile delete notice:', err)
-  );
+  deleteDoc(doc(db, 'profiles', userId))
+    .then(() => clearDeletedId(userId))
+    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `profiles/${userId}`));
 }
 
 // --- Dashboard Stats ---
@@ -676,9 +743,9 @@ export async function deleteProduct(id: string): Promise<void> {
   setItem(STORAGE_KEYS.PRODUCTS, filtered);
   notifyDataUpdate('products-updated');
 
-  deleteDoc(doc(db, 'products', id)).catch((err) =>
-    console.warn('Firestore product delete notice:', err)
-  );
+  deleteDoc(doc(db, 'products', id))
+    .then(() => clearDeletedId(id))
+    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `products/${id}`));
 }
 
 // --- Services ---
@@ -750,9 +817,9 @@ export async function deleteService(id: string): Promise<void> {
   setItem(STORAGE_KEYS.SERVICES, filtered);
   notifyDataUpdate('services-updated');
 
-  deleteDoc(doc(db, 'services', id)).catch((err) =>
-    console.warn('Firestore service delete notice:', err)
-  );
+  deleteDoc(doc(db, 'services', id))
+    .then(() => clearDeletedId(id))
+    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `services/${id}`));
 }
 
 // --- Expenses ---
@@ -815,9 +882,9 @@ export async function deleteExpense(id: string): Promise<void> {
   setItem(STORAGE_KEYS.EXPENSES, filtered);
   notifyDataUpdate('expenses-updated');
 
-  deleteDoc(doc(db, 'expenses', id)).catch((err) =>
-    console.warn('Firestore expense delete notice:', err)
-  );
+  deleteDoc(doc(db, 'expenses', id))
+    .then(() => clearDeletedId(id))
+    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `expenses/${id}`));
 }
 
 // --- Transactions ---
@@ -842,9 +909,9 @@ export async function deleteTransaction(id: string): Promise<void> {
   setItem(STORAGE_KEYS.TRANSACTIONS, filtered);
   notifyDataUpdate('transactions-updated');
 
-  deleteDoc(doc(db, 'transactions', id)).catch((err) =>
-    console.warn('Firestore transaction delete notice:', err)
-  );
+  deleteDoc(doc(db, 'transactions', id))
+    .then(() => clearDeletedId(id))
+    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `transactions/${id}`));
 }
 
 export async function createTransaction(
@@ -986,6 +1053,36 @@ export function exportDatabaseBackup(): string {
   return JSON.stringify(payload, null, 2);
 }
 
+async function syncCollectionsToCloud(collections: {
+  profiles?: Profile[];
+  products?: Product[];
+  services?: Service[];
+  expenses?: Expense[];
+  transactions?: TransactionWithItems[];
+}): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    for (const p of collections.profiles || []) {
+      if (p?.id) batch.set(doc(db, 'profiles', p.id), p);
+    }
+    for (const pr of collections.products || []) {
+      if (pr?.id) batch.set(doc(db, 'products', pr.id), pr);
+    }
+    for (const s of collections.services || []) {
+      if (s?.id) batch.set(doc(db, 'services', s.id), s);
+    }
+    for (const e of collections.expenses || []) {
+      if (e?.id) batch.set(doc(db, 'expenses', e.id), e);
+    }
+    for (const t of collections.transactions || []) {
+      if (t?.id) batch.set(doc(db, 'transactions', t.id), t);
+    }
+    await batch.commit();
+  } catch (err) {
+    reportFirestoreNotice(err, OperationType.WRITE, 'collections/batch');
+  }
+}
+
 export function importDatabaseBackup(jsonString: string): { success: boolean; message: string } {
   try {
     const parsed = JSON.parse(jsonString);
@@ -994,13 +1091,33 @@ export function importDatabaseBackup(jsonString: string): { success: boolean; me
     }
     const { profiles, products, services, expenses, transactions } = parsed.collections;
 
-    if (Array.isArray(profiles)) setItem(STORAGE_KEYS.PROFILES, profiles);
-    if (Array.isArray(products)) setItem(STORAGE_KEYS.PRODUCTS, products);
-    if (Array.isArray(services)) setItem(STORAGE_KEYS.SERVICES, services);
-    if (Array.isArray(expenses)) setItem(STORAGE_KEYS.EXPENSES, expenses);
-    if (Array.isArray(transactions)) setItem(STORAGE_KEYS.TRANSACTIONS, transactions);
+    setItem(STORAGE_KEYS.DELETED_IDS, []);
+    setItem(STORAGE_KEYS.PENDING_WRITES, []);
 
-    return { success: true, message: 'Database successfully restored from backup' };
+    if (Array.isArray(profiles)) {
+      setItem(STORAGE_KEYS.PROFILES, profiles);
+      notifyDataUpdate('profiles-updated');
+    }
+    if (Array.isArray(products)) {
+      setItem(STORAGE_KEYS.PRODUCTS, products);
+      notifyDataUpdate('products-updated');
+    }
+    if (Array.isArray(services)) {
+      setItem(STORAGE_KEYS.SERVICES, services);
+      notifyDataUpdate('services-updated');
+    }
+    if (Array.isArray(expenses)) {
+      setItem(STORAGE_KEYS.EXPENSES, expenses);
+      notifyDataUpdate('expenses-updated');
+    }
+    if (Array.isArray(transactions)) {
+      setItem(STORAGE_KEYS.TRANSACTIONS, transactions);
+      notifyDataUpdate('transactions-updated');
+    }
+
+    syncCollectionsToCloud({ profiles, products, services, expenses, transactions });
+
+    return { success: true, message: 'Database restored and synced to cloud' };
   } catch (err: any) {
     return { success: false, message: err.message || 'Failed to parse JSON backup file' };
   }
@@ -1011,7 +1128,12 @@ export function resetDatabase(): void {
     localStorage.removeItem(key);
   }
   initializeLocalStorage();
-  syncFirestoreSeed();
+  notifyDataUpdate('profiles-updated');
+  notifyDataUpdate('products-updated');
+  notifyDataUpdate('services-updated');
+  notifyDataUpdate('expenses-updated');
+  notifyDataUpdate('transactions-updated');
+  initializeFirestoreSync();
 }
 
 export function getRawCollectionData(collectionName: 'profiles' | 'products' | 'services' | 'expenses' | 'transactions'): any[] {

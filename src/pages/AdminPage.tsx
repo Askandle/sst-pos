@@ -8,126 +8,14 @@ import {
   getExpenses,
   updateProfileRole,
   deleteProfile,
+  getDatabaseStatsSummary,
+  exportDatabaseBackup,
+  importDatabaseBackup,
+  resetDatabase,
+  getRawCollectionData,
+  type DatabaseStatsSummary,
 } from '@/db/api';
 import type { Profile } from '@/types';
-
-interface DatabaseStatsSummary {
-  profilesCount: number;
-  productsCount: number;
-  servicesCount: number;
-  expensesCount: number;
-  transactionsCount: number;
-  storageSizeKb: number;
-  lastUpdated: string;
-}
-
-const STORAGE_KEYS = {
-  PROFILES: 'netpos_profiles',
-  PRODUCTS: 'netpos_products',
-  SERVICES: 'netpos_services',
-  EXPENSES: 'netpos_expenses',
-  TRANSACTIONS: 'netpos_transactions',
-};
-
-function getLocalItem<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function setLocalItem(key: string, value: any): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.error('Storage write error:', err);
-  }
-}
-
-function getDatabaseStatsSummary(): DatabaseStatsSummary {
-  const profiles = getLocalItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
-  const products = getLocalItem<any[]>(STORAGE_KEYS.PRODUCTS, []);
-  const services = getLocalItem<any[]>(STORAGE_KEYS.SERVICES, []);
-  const expenses = getLocalItem<any[]>(STORAGE_KEYS.EXPENSES, []);
-  const transactions = getLocalItem<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
-
-  let totalBytes = 0;
-  for (const key of Object.values(STORAGE_KEYS)) {
-    const raw = localStorage.getItem(key);
-    if (raw) totalBytes += raw.length * 2;
-  }
-
-  return {
-    profilesCount: profiles.length,
-    productsCount: products.length,
-    servicesCount: services.length,
-    expensesCount: expenses.length,
-    transactionsCount: transactions.length,
-    storageSizeKb: Math.max(1, Math.round(totalBytes / 1024)),
-    lastUpdated: new Date().toISOString(),
-  };
-}
-
-function exportDatabaseBackup(): string {
-  const payload = {
-    version: '1.0.0',
-    exported_at: new Date().toISOString(),
-    system: 'S.S.T POS - Sanyali School of Technology',
-    collections: {
-      profiles: getLocalItem(STORAGE_KEYS.PROFILES, []),
-      products: getLocalItem(STORAGE_KEYS.PRODUCTS, []),
-      services: getLocalItem(STORAGE_KEYS.SERVICES, []),
-      expenses: getLocalItem(STORAGE_KEYS.EXPENSES, []),
-      transactions: getLocalItem(STORAGE_KEYS.TRANSACTIONS, []),
-    },
-  };
-  return JSON.stringify(payload, null, 2);
-}
-
-function importDatabaseBackup(jsonString: string): { success: boolean; message: string } {
-  try {
-    const parsed = JSON.parse(jsonString);
-    if (!parsed.collections) {
-      return { success: false, message: 'Invalid backup file structure: missing collections' };
-    }
-    const { profiles, products, services, expenses, transactions } = parsed.collections;
-
-    if (Array.isArray(profiles)) setLocalItem(STORAGE_KEYS.PROFILES, profiles);
-    if (Array.isArray(products)) setLocalItem(STORAGE_KEYS.PRODUCTS, products);
-    if (Array.isArray(services)) setLocalItem(STORAGE_KEYS.SERVICES, services);
-    if (Array.isArray(expenses)) setLocalItem(STORAGE_KEYS.EXPENSES, expenses);
-    if (Array.isArray(transactions)) setLocalItem(STORAGE_KEYS.TRANSACTIONS, transactions);
-
-    return { success: true, message: 'Database successfully restored from backup' };
-  } catch (err: any) {
-    return { success: false, message: err.message || 'Failed to parse JSON backup file' };
-  }
-}
-
-function resetDatabase(): void {
-  for (const key of Object.values(STORAGE_KEYS)) {
-    localStorage.removeItem(key);
-  }
-}
-
-function getRawCollectionData(collectionName: 'profiles' | 'products' | 'services' | 'expenses' | 'transactions'): any[] {
-  switch (collectionName) {
-    case 'profiles':
-      return getLocalItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
-    case 'products':
-      return getLocalItem<any[]>(STORAGE_KEYS.PRODUCTS, []);
-    case 'services':
-      return getLocalItem<any[]>(STORAGE_KEYS.SERVICES, []);
-    case 'expenses':
-      return getLocalItem<any[]>(STORAGE_KEYS.EXPENSES, []);
-    case 'transactions':
-      return getLocalItem<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
-    default:
-      return [];
-  }
-}
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
