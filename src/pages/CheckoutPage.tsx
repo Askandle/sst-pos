@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { createTransaction } from '@/db/api';
-import type { CartItem, PaymentMethod } from '@/types';
+import type { CartItem, PaymentMethod, TransactionWithItems } from '@/types';
+import InvoiceModal from '@/components/InvoiceModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,14 +12,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, ShoppingCart, CreditCard, Loader2 } from 'lucide-react';
+import { Trash2, ShoppingCart, CreditCard, Loader2, User, Phone, Printer, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function CheckoutPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [notes, setNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [completedTransaction, setCompletedTransaction] = useState<TransactionWithItems | null>(null);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -60,7 +65,7 @@ export default function CheckoutPage() {
   };
 
   const calculateTotal = () => {
-    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   };
 
   const handleCheckout = async () => {
@@ -74,36 +79,50 @@ export default function CheckoutPage() {
       return;
     }
 
+    const cleanName = customerName.trim() || undefined;
+    const cleanPhone = customerPhone.trim() || undefined;
+
     setIsProcessing(true);
 
     try {
-      const transactionType = cart.every(item => item.type === 'service') ? 'service' :
-                              cart.every(item => item.type === 'product') ? 'product' : 'service';
+      const transactionType = cart.every((item) => item.type === 'service')
+        ? 'service'
+        : cart.every((item) => item.type === 'product')
+          ? 'product'
+          : 'service';
 
-      const items = cart.map(item => ({
+      const items = cart.map((item) => ({
         item_type: item.type,
         item_id: item.id,
         item_name: item.name,
         quantity: item.quantity,
         unit_price: item.price,
-        subtotal: item.price * item.quantity
+        subtotal: item.price * item.quantity,
       }));
 
-      await createTransaction(
+      const newTxn = await createTransaction(
         user.id,
         transactionType,
         calculateTotal(),
         paymentMethod,
         items,
-        notes?.trim() || undefined
+        notes?.trim() || undefined,
+        cleanName,
+        cleanPhone
       );
 
       sessionStorage.removeItem('cart');
+      setCart([]);
+      setCustomerName('');
+      setCustomerPhone('');
+      setNotes('');
       window.dispatchEvent(new Event('cart-updated'));
       window.dispatchEvent(new Event('transactions-updated'));
       window.dispatchEvent(new Event('storage'));
-      toast.success('Transaction completed successfully!');
-      navigate('/transactions');
+
+      setCompletedTransaction(newTxn);
+      setInvoiceOpen(true);
+      toast.success('Transaction completed! Invoice is ready to print.');
     } catch (error) {
       console.error('Checkout error:', error);
       toast.error('Failed to process transaction');
@@ -126,17 +145,78 @@ export default function CheckoutPage() {
           <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
           <p className="text-muted-foreground">Complete your transaction</p>
         </div>
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <ShoppingCart className="h-16 w-16 text-muted-foreground mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Your cart is empty</h3>
-            <p className="text-muted-foreground mb-4">Add services or products to get started</p>
-            <div className="flex gap-2">
-              <Button onClick={() => navigate('/services')}>Browse Services</Button>
-              <Button variant="outline" onClick={() => navigate('/products')}>Browse Products</Button>
-            </div>
-          </CardContent>
-        </Card>
+
+        {completedTransaction ? (
+          <Card className="border-2 border-emerald-500/40 rounded-xl shadow-xs">
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="p-3 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 mb-4">
+                <CheckCircle2 className="h-12 w-12" />
+              </div>
+              <h3 className="text-xl font-bold mb-1">
+                Transaction Completed ({completedTransaction.transaction_number})
+              </h3>
+              <p className="text-muted-foreground mb-1">
+                Customer:{' '}
+                <span className="font-semibold text-foreground">
+                  {completedTransaction.customer_name || 'Walk-in Customer'}
+                </span>
+                {completedTransaction.customer_phone
+                  ? ` (${completedTransaction.customer_phone})`
+                  : ''}
+              </p>
+              <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 mb-6 tabular-nums">
+                Total Paid: GH₵{completedTransaction.total_amount.toFixed(2)}
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  onClick={() => setInvoiceOpen(true)}
+                  className="bg-sky-600 hover:bg-sky-700 text-white cursor-pointer"
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  View / Print Invoice
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/services')} className="cursor-pointer">
+                  New Sale (Services)
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/transactions')} className="cursor-pointer">
+                  View Transactions
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <ShoppingCart className="h-16 w-16 text-muted-foreground mb-4" />
+              <h3 className="text-xl font-semibold mb-2">Your cart is empty</h3>
+              <p className="text-muted-foreground mb-4">Add services or products to get started</p>
+              <div className="flex gap-2">
+                <Button onClick={() => navigate('/services')}>Browse Services</Button>
+                <Button variant="outline" onClick={() => navigate('/products')}>
+                  Browse Products
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <InvoiceModal
+          transaction={completedTransaction}
+          open={invoiceOpen}
+          onOpenChange={setInvoiceOpen}
+          footerActions={
+            <Button
+              variant="outline"
+              onClick={() => {
+                setInvoiceOpen(false);
+                navigate('/transactions');
+              }}
+              className="cursor-pointer"
+            >
+              All Transactions
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -146,7 +226,7 @@ export default function CheckoutPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
-          <p className="text-muted-foreground">Complete your transaction</p>
+          <p className="text-muted-foreground">Enter customer details and complete transaction</p>
         </div>
         <Button variant="outline" onClick={clearCart}>
           <Trash2 className="mr-2 h-4 w-4" />
@@ -162,11 +242,19 @@ export default function CheckoutPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {cart.map((item, index) => (
-                <div key={index} className="flex items-center gap-4 p-4 border-2 border-sky-500/25 dark:border-sky-400/25 hover:border-sky-500/50 rounded-xl bg-card transition-colors shadow-2xs">
+                <div
+                  key={index}
+                  className="flex items-center gap-4 p-4 border-2 border-sky-500/25 dark:border-sky-400/25 hover:border-sky-500/50 rounded-xl bg-card transition-colors shadow-2xs"
+                >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h4 className="font-semibold text-foreground">{item.name}</h4>
-                      <Badge variant="outline" className="border-sky-500/40 text-sky-600 dark:text-sky-400 bg-sky-500/5">{item.type}</Badge>
+                      <Badge
+                        variant="outline"
+                        className="border-sky-500/40 text-sky-600 dark:text-sky-400 bg-sky-500/5"
+                      >
+                        {item.type}
+                      </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground mt-0.5">
                       GH₵{item.price.toFixed(2)} {item.unit && `/ ${item.unit}`}
@@ -205,12 +293,45 @@ export default function CheckoutPage() {
         <div className="space-y-4">
           <Card className="border-2 border-emerald-500/40 dark:border-emerald-400/40 rounded-xl shadow-xs bg-card">
             <CardHeader>
-              <CardTitle>Payment Details</CardTitle>
+              <CardTitle>Customer &amp; Payment Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="customer-name" className="flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-muted-foreground" />
+                  Customer Name (Optional)
+                </Label>
+                <Input
+                  id="customer-name"
+                  type="text"
+                  placeholder="Enter customer full name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  maxLength={120}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="customer-phone" className="flex items-center gap-1.5">
+                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                  Phone Number (Optional)
+                </Label>
+                <Input
+                  id="customer-phone"
+                  type="tel"
+                  placeholder="e.g. 024 123 4567"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  maxLength={40}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="payment-method">Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={(value) => setPaymentMethod(value as PaymentMethod)}>
+                <Select
+                  value={paymentMethod}
+                  onValueChange={(value) => setPaymentMethod(value as PaymentMethod)}
+                >
                   <SelectTrigger id="payment-method">
                     <SelectValue />
                   </SelectTrigger>
@@ -247,7 +368,7 @@ export default function CheckoutPage() {
               </div>
 
               <Button
-                className="w-full"
+                className="w-full cursor-pointer"
                 size="lg"
                 onClick={handleCheckout}
                 disabled={isProcessing}
@@ -260,7 +381,7 @@ export default function CheckoutPage() {
                 ) : (
                   <>
                     <CreditCard className="mr-2 h-4 w-4" />
-                    Complete Transaction
+                    Complete Transaction &amp; Invoice
                   </>
                 )}
               </Button>
@@ -268,6 +389,12 @@ export default function CheckoutPage() {
           </Card>
         </div>
       </div>
+
+      <InvoiceModal
+        transaction={completedTransaction}
+        open={invoiceOpen}
+        onOpenChange={setInvoiceOpen}
+      />
     </div>
   );
 }

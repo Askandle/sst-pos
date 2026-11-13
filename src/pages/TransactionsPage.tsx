@@ -31,15 +31,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Eye, Receipt, Trash2 } from 'lucide-react';
+import { Eye, Receipt, Trash2, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import InvoiceModal from '@/components/InvoiceModal';
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<TransactionWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionWithItems | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [invoiceTransaction, setInvoiceTransaction] = useState<TransactionWithItems | null>(null);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [txnToDelete, setTxnToDelete] = useState<TransactionWithItems | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
@@ -77,6 +80,11 @@ export default function TransactionsPage() {
   const viewDetails = (transaction: TransactionWithItems) => {
     setSelectedTransaction(transaction);
     setDetailsOpen(true);
+  };
+
+  const openInvoice = (transaction: TransactionWithItems) => {
+    setInvoiceTransaction(transaction);
+    setInvoiceOpen(true);
   };
 
   const confirmDelete = (transaction: TransactionWithItems) => {
@@ -177,6 +185,7 @@ export default function TransactionsPage() {
                 <TableRow>
                   <TableHead>Transaction #</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Customer</TableHead>
                   <TableHead>Staff</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Payment</TableHead>
@@ -188,7 +197,7 @@ export default function TransactionsPage() {
               <TableBody>
                 {transactions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                       <Receipt className="h-12 w-12 mx-auto mb-2 opacity-50" />
                       <p>No transactions found</p>
                     </TableCell>
@@ -201,6 +210,22 @@ export default function TransactionsPage() {
                       </TableCell>
                       <TableCell>
                         {format(new Date(transaction.created_at), 'MMM dd, yyyy HH:mm')}
+                      </TableCell>
+                      <TableCell>
+                        {transaction.customer_name || transaction.customer_phone ? (
+                          <div>
+                            <p className="font-medium text-sm leading-tight">
+                              {transaction.customer_name || 'Walk-in Customer'}
+                            </p>
+                            {transaction.customer_phone && (
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {transaction.customer_phone}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Walk-in</span>
+                        )}
                       </TableCell>
                       <TableCell>{transaction.staff?.username || 'N/A'}</TableCell>
                       <TableCell>
@@ -215,6 +240,16 @@ export default function TransactionsPage() {
                       <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openInvoice(transaction)}
+                            title="View and print invoice"
+                            className="h-8 px-2.5 text-xs font-medium border-2 border-border hover:border-emerald-500/60 rounded-lg cursor-pointer flex items-center gap-1"
+                          >
+                            <Printer className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                            Invoice
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -258,6 +293,14 @@ export default function TransactionsPage() {
           {selectedTransaction && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Customer Name</p>
+                  <p className="font-medium">{selectedTransaction.customer_name || 'Walk-in Customer'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Phone Number</p>
+                  <p className="font-medium font-mono text-sm">{selectedTransaction.customer_phone || 'N/A'}</p>
+                </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Date</p>
                   <p className="font-medium">
@@ -314,17 +357,30 @@ export default function TransactionsPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-border">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    confirmDelete(selectedTransaction);
-                  }}
-                  className="border-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive font-medium cursor-pointer w-full sm:w-auto"
-                >
-                  <Trash2 className="h-4 w-4 mr-1.5" />
-                  Delete Transaction Record
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setDetailsOpen(false);
+                      openInvoice(selectedTransaction);
+                    }}
+                    className="bg-sky-600 hover:bg-sky-700 text-white font-medium cursor-pointer"
+                  >
+                    <Printer className="h-4 w-4 mr-1.5" />
+                    Print Invoice
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      confirmDelete(selectedTransaction);
+                    }}
+                    className="border-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive font-medium cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Delete Record
+                  </Button>
+                </div>
                 <div className="flex items-center justify-between sm:justify-end gap-3 ml-auto">
                   <span className="text-lg font-semibold">Total Paid</span>
                   <span className="text-2xl font-bold tabular-nums text-foreground">
@@ -336,6 +392,12 @@ export default function TransactionsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <InvoiceModal
+        transaction={invoiceTransaction}
+        open={invoiceOpen}
+        onOpenChange={setInvoiceOpen}
+      />
 
       {/* Delete Transaction Confirmation Dialog */}
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

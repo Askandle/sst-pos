@@ -69,6 +69,8 @@
         "transaction_number": { "type": "string", "maxLength": 80 },
         "user_id": { "type": "string", "maxLength": 128 },
         "staff": { "type": "object" },
+        "customer_name": { "type": "string", "maxLength": 120 },
+        "customer_phone": { "type": "string", "maxLength": 40 },
         "transaction_type": { "type": "string", "maxLength": 50 },
         "total_amount": { "type": "number" },
         "payment_method": { "type": "string", "enum": ["cash", "card", "mobile"] },

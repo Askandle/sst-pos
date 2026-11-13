@@ -100,3 +100,32 @@
 .bg-chart-2 { background-color: var(--chart-2); color: #fff; }
 .bg-chart-3 { background-color: var(--chart-3); color: #fff; }
 .bg-chart-4 { background-color: var(--chart-4); color: #fff; }
+
+@media print {
+  @page {
+    margin: 12mm;
+    size: auto;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body > *:not(#print-invoice-root) {
+    display: none !important;
+  }
+
+  #print-invoice-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+}

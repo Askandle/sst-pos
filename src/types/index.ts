@@ -73,6 +73,8 @@ export interface Transaction {
   staff?: {
     username: string;
   };
+  customer_name?: string | null;
+  customer_phone?: string | null;
   transaction_type: string;
   total_amount: number;
   payment_method: PaymentMethod;

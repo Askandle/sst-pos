@@ -929,7 +929,9 @@ export async function createTransaction(
     unit_price: number;
     subtotal: number;
   }>,
-  notes?: string
+  notes?: string,
+  customerName?: string,
+  customerPhone?: string
 ): Promise<TransactionWithItems> {
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const staff = profiles.find((p) => p.id === userId);
@@ -960,6 +962,8 @@ export async function createTransaction(
 
   // CRITICAL: Firestore rejects undefined. All optional values must be null or omitted!
   const cleanNotes = notes?.trim() || null;
+  const cleanCustomerName = customerName?.trim() || null;
+  const cleanCustomerPhone = customerPhone?.trim() || null;
 
   const newTxn: TransactionWithItems = {
     id: `txn_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -968,6 +972,8 @@ export async function createTransaction(
     staff: {
       username: staff?.username || 'staff',
     },
+    customer_name: cleanCustomerName,
+    customer_phone: cleanCustomerPhone,
     transaction_type: transactionType,
     total_amount: Number(totalAmount),
     payment_method: paymentMethod,
