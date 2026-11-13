@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { getTransactions, getExpenses, getAllProducts } from '@/db/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { DashboardStats, Product, TransactionWithItems } from '@/types';
 import { DollarSign, ShoppingCart, TrendingDown, AlertTriangle } from 'lucide-react';
@@ -13,14 +14,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData();
+    // Trigger background Firestore sync so mobile/other devices stay updated
+    getTransactions(500).catch(console.warn);
+    getExpenses(500).catch(console.warn);
+    getAllProducts().catch(console.warn);
+
+    const handleFocus = () => {
+      getTransactions(500).catch(console.warn);
+      getExpenses(500).catch(console.warn);
+      getAllProducts().catch(console.warn);
+      loadDashboardData();
+    };
 
     window.addEventListener('storage', loadDashboardData);
-    window.addEventListener('focus', loadDashboardData);
+    window.addEventListener('focus', handleFocus);
     window.addEventListener('transactions-updated', loadDashboardData);
+    window.addEventListener('expenses-updated', loadDashboardData);
+    window.addEventListener('products-updated', loadDashboardData);
     return () => {
       window.removeEventListener('storage', loadDashboardData);
-      window.removeEventListener('focus', loadDashboardData);
+      window.removeEventListener('focus', handleFocus);
       window.removeEventListener('transactions-updated', loadDashboardData);
+      window.removeEventListener('expenses-updated', loadDashboardData);
+      window.removeEventListener('products-updated', loadDashboardData);
     };
   }, []);
 

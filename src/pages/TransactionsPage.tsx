@@ -65,18 +65,6 @@ export default function TransactionsPage() {
 
   const loadTransactions = async () => {
     try {
-      const local = localStorage.getItem('netpos_transactions');
-      if (local) {
-        try {
-          const parsed = JSON.parse(local);
-          if (Array.isArray(parsed)) {
-            setTransactions(parsed);
-            setLoading(false);
-            return;
-          }
-        } catch {}
-      }
-
       const data = await getTransactions(100);
       setTransactions(data);
     } catch (error) {

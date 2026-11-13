@@ -1,6 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllProfiles, updateProfileRole, deleteProfile } from '@/db/api';
+import {
+  getAllProfiles,
+  getAllProducts,
+  getAllServices,
+  getTransactions,
+  getExpenses,
+  updateProfileRole,
+  deleteProfile,
+} from '@/db/api';
 import type { Profile } from '@/types';
 
 interface DatabaseStatsSummary {
@@ -192,33 +200,35 @@ export default function AdminPage() {
       loadData();
 
       const handleUpdate = () => loadData();
+      const handleStatsUpdate = () => refreshDbStats();
       window.addEventListener('profiles-updated', handleUpdate);
+      window.addEventListener('products-updated', handleStatsUpdate);
+      window.addEventListener('services-updated', handleStatsUpdate);
+      window.addEventListener('transactions-updated', handleStatsUpdate);
+      window.addEventListener('expenses-updated', handleStatsUpdate);
       window.addEventListener('storage', handleUpdate);
+      window.addEventListener('focus', handleUpdate);
       return () => {
         window.removeEventListener('profiles-updated', handleUpdate);
+        window.removeEventListener('products-updated', handleStatsUpdate);
+        window.removeEventListener('services-updated', handleStatsUpdate);
+        window.removeEventListener('transactions-updated', handleStatsUpdate);
+        window.removeEventListener('expenses-updated', handleStatsUpdate);
         window.removeEventListener('storage', handleUpdate);
+        window.removeEventListener('focus', handleUpdate);
       };
     }
   }, [profile]);
 
   const loadData = async () => {
     try {
-      // 1. Read local storage first to preserve any user deletions
-      const local = localStorage.getItem(STORAGE_KEYS.PROFILES);
-      if (local) {
-        try {
-          const parsed = JSON.parse(local);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setProfiles(parsed);
-            refreshDbStats();
-            setLoading(false);
-            return;
-          }
-        } catch {}
-      }
-
       const data = await getAllProfiles();
       setProfiles(data);
+      // Trigger background sync for all collections so Admin DB stats & raw viewer reflect cloud state
+      getAllProducts().catch(console.warn);
+      getAllServices().catch(console.warn);
+      getTransactions(500).catch(console.warn);
+      getExpenses(500).catch(console.warn);
       refreshDbStats();
     } catch (error) {
       console.error('Error loading admin data:', error);

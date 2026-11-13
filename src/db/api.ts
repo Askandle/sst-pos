@@ -30,6 +30,7 @@ const STORAGE_KEYS = {
   EXPENSES: 'netpos_expenses',
   TRANSACTIONS: 'netpos_transactions',
   DELETED_IDS: 'netpos_deleted_ids',
+  PENDING_WRITES: 'netpos_pending_writes',
   INITIALIZED: 'netpos_initialized',
   FIRESTORE_SYNCED: 'netpos_firestore_synced',
 };
@@ -294,12 +295,37 @@ function markIdDeleted(id: string): void {
   const ids = getDeletedIds();
   ids.add(id);
   setItem(STORAGE_KEYS.DELETED_IDS, Array.from(ids));
+  clearPendingWrite(id);
 }
 
-// Safely merge local and remote collections by id, preserving newly created or edited items and excluding deleted ones
-function safeMergeById<T extends { id: string }>(localList: T[], remoteList: T[]): T[] {
+function getPendingWrites(): Set<string> {
+  const arr = getItem<string[]>(STORAGE_KEYS.PENDING_WRITES, []);
+  return new Set(Array.isArray(arr) ? arr : []);
+}
+
+function markPendingWrite(id: string): void {
+  const pending = getPendingWrites();
+  pending.add(id);
+  setItem(STORAGE_KEYS.PENDING_WRITES, Array.from(pending));
+}
+
+function clearPendingWrite(id: string): void {
+  const pending = getPendingWrites();
+  if (pending.has(id)) {
+    pending.delete(id);
+    setItem(STORAGE_KEYS.PENDING_WRITES, Array.from(pending));
+  }
+}
+
+// Reconcile remote Firestore state with local cache:
+// - Remote items win (so edits from other devices apply locally), unless id has an in-flight local pending write.
+// - Items missing from remote are removed (reflecting deletions on other devices), unless id has a local pending write.
+// - Locally deleted IDs are always excluded until cloud delete settles.
+function reconcileWithRemote<T extends { id: string }>(localList: T[], remoteList: T[]): T[] {
   const deleted = getDeletedIds();
+  const pending = getPendingWrites();
   const map = new Map<string, T>();
+
   if (Array.isArray(remoteList)) {
     for (const item of remoteList) {
       if (item && item.id && !deleted.has(item.id)) {
@@ -307,13 +333,15 @@ function safeMergeById<T extends { id: string }>(localList: T[], remoteList: T[]
       }
     }
   }
+
   if (Array.isArray(localList)) {
     for (const item of localList) {
-      if (item && item.id && !deleted.has(item.id)) {
+      if (item && item.id && !deleted.has(item.id) && pending.has(item.id)) {
         map.set(item.id, item);
       }
     }
   }
+
   return Array.from(map.values());
 }
 
@@ -327,9 +355,9 @@ function notifyDataUpdate(eventName: string): void {
 // Track last background sync timestamp per collection to avoid redundant cloud fetches
 const lastSyncTime: Record<string, number> = {};
 const inflightSync: Record<string, boolean> = {};
-const SYNC_COOLDOWN_MS = 15000;
+const SYNC_COOLDOWN_MS = 5000;
 
-async function withTimeout<T>(promise: Promise<T>, ms = 4000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), ms)),
@@ -349,21 +377,19 @@ function syncCollectionInBackground<T extends { id: string }>(
   inflightSync[collectionName] = true;
   lastSyncTime[collectionName] = now;
 
-  withTimeout(getDocs(collection(db, collectionName)), 4000)
+  withTimeout(getDocs(collection(db, collectionName)), 5000)
     .then((snapshot) => {
-      if (snapshot.empty) return;
+      // Only skip empty remote snapshot if Firestore hasn't been confirmed seeded yet
+      if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) return;
       const remoteItems: T[] = [];
       snapshot.forEach((d) => remoteItems.push(d.data() as T));
 
       const local = getItem<T[]>(storageKey, []);
-      const merged = safeMergeById(local, remoteItems);
-      if (sortFn) merged.sort(sortFn);
+      const reconciled = reconcileWithRemote(local, remoteItems);
+      if (sortFn) reconciled.sort(sortFn);
 
-      // Only update & notify if merged differs in length or contains new remote IDs
-      const localIds = new Set(local.map((i) => i.id));
-      const hasNewRemote = merged.some((item) => !localIds.has(item.id));
-      if (hasNewRemote) {
-        setItem(storageKey, merged);
+      if (JSON.stringify(reconciled) !== JSON.stringify(local)) {
+        setItem(storageKey, reconciled);
         notifyDataUpdate(eventName);
       }
     })
@@ -424,6 +450,23 @@ async function syncFirestoreSeed() {
       console.log('Firestore successfully seeded with initial internet cafe data.');
     }
     localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
+
+    // Sync all collections on boot so secondary/mobile devices quickly reflect latest cloud state
+    syncCollectionInBackground<Profile>('profiles', STORAGE_KEYS.PROFILES, 'profiles-updated');
+    syncCollectionInBackground<Service>('services', STORAGE_KEYS.SERVICES, 'services-updated');
+    syncCollectionInBackground<Product>('products', STORAGE_KEYS.PRODUCTS, 'products-updated');
+    syncCollectionInBackground<Expense>(
+      'expenses',
+      STORAGE_KEYS.EXPENSES,
+      'expenses-updated',
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    syncCollectionInBackground<TransactionWithItems>(
+      'transactions',
+      STORAGE_KEYS.TRANSACTIONS,
+      'transactions-updated',
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
   } catch (err) {
     console.warn('Firestore initial sync notice:', err);
   }
@@ -439,39 +482,63 @@ export async function getAllProfiles(): Promise<Profile[]> {
   return local;
 }
 
+export async function fetchProfilesFromCloud(): Promise<Profile[]> {
+  const local = getItem<Profile[]>(STORAGE_KEYS.PROFILES, INITIAL_PROFILES);
+  try {
+    const snapshot = await withTimeout(getDocs(collection(db, 'profiles')), 4000);
+    if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
+      return local;
+    }
+    const remoteItems: Profile[] = [];
+    snapshot.forEach((d) => remoteItems.push(d.data() as Profile));
+    const reconciled = reconcileWithRemote(local, remoteItems);
+    if (JSON.stringify(reconciled) !== JSON.stringify(local)) {
+      setItem(STORAGE_KEYS.PROFILES, reconciled);
+      notifyDataUpdate('profiles-updated');
+    }
+    return reconciled;
+  } catch (err) {
+    console.warn('Cloud profile fetch notice:', err);
+    return local;
+  }
+}
+
 export async function createProfile(newProfile: Profile): Promise<Profile> {
+  markPendingWrite(newProfile.id);
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const exists = profiles.some((p) => p.id === newProfile.id);
   const updated = exists ? profiles : [...profiles, newProfile];
   setItem(STORAGE_KEYS.PROFILES, updated);
   notifyDataUpdate('profiles-updated');
 
-  setDoc(doc(db, 'profiles', newProfile.id), newProfile).catch((err) =>
-    console.warn('Firestore profile creation notice:', err)
-  );
+  setDoc(doc(db, 'profiles', newProfile.id), newProfile)
+    .then(() => clearPendingWrite(newProfile.id))
+    .catch((err) => console.warn('Firestore profile creation notice:', err));
 
   return newProfile;
 }
 
 export async function updateProfileRole(userId: string, newRole: 'staff' | 'admin'): Promise<void> {
+  markPendingWrite(userId);
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const updated = profiles.map((p) => (p.id === userId ? { ...p, role: newRole } : p));
   setItem(STORAGE_KEYS.PROFILES, updated);
   notifyDataUpdate('profiles-updated');
 
-  setDoc(doc(db, 'profiles', userId), { role: newRole }, { merge: true }).catch((err) =>
-    console.warn('Firestore profile update notice:', err)
-  );
+  setDoc(doc(db, 'profiles', userId), { role: newRole }, { merge: true })
+    .then(() => clearPendingWrite(userId))
+    .catch((err) => console.warn('Firestore profile update notice:', err));
 }
 
 export async function updateProfilePasswordHash(userId: string, passwordHash: string): Promise<void> {
+  markPendingWrite(userId);
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const updated = profiles.map((p) => (p.id === userId ? { ...p, password_hash: passwordHash } : p));
   setItem(STORAGE_KEYS.PROFILES, updated);
 
-  setDoc(doc(db, 'profiles', userId), { password_hash: passwordHash }, { merge: true }).catch((err) =>
-    console.warn('Firestore profile credential sync notice:', err)
-  );
+  setDoc(doc(db, 'profiles', userId), { password_hash: passwordHash }, { merge: true })
+    .then(() => clearPendingWrite(userId))
+    .catch((err) => console.warn('Firestore profile credential sync notice:', err));
 }
 
 export async function deleteProfile(userId: string): Promise<void> {
@@ -561,14 +628,15 @@ export async function createProduct(data: {
     created_at: new Date().toISOString(),
   };
 
+  markPendingWrite(newProduct.id);
   const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []);
   products.unshift(newProduct);
   setItem(STORAGE_KEYS.PRODUCTS, products);
   notifyDataUpdate('products-updated');
 
-  setDoc(doc(db, 'products', newProduct.id), newProduct).catch((err) =>
-    console.warn('Firestore product creation notice:', err)
-  );
+  setDoc(doc(db, 'products', newProduct.id), newProduct)
+    .then(() => clearPendingWrite(newProduct.id))
+    .catch((err) => console.warn('Firestore product creation notice:', err));
 
   return newProduct;
 }
@@ -589,13 +657,14 @@ export async function updateProduct(
     ...products[index],
     ...cleanUpdates,
   };
+  markPendingWrite(id);
   products[index] = updated;
   setItem(STORAGE_KEYS.PRODUCTS, products);
   notifyDataUpdate('products-updated');
 
-  setDoc(doc(db, 'products', id), cleanUpdates, { merge: true }).catch((err) =>
-    console.warn('Firestore product update notice:', err)
-  );
+  setDoc(doc(db, 'products', id), cleanUpdates, { merge: true })
+    .then(() => clearPendingWrite(id))
+    .catch((err) => console.warn('Firestore product update notice:', err));
 
   return updated;
 }
@@ -634,14 +703,15 @@ export async function createService(data: {
     created_at: new Date().toISOString(),
   };
 
+  markPendingWrite(newService.id);
   const services = getItem<Service[]>(STORAGE_KEYS.SERVICES, []);
   services.unshift(newService);
   setItem(STORAGE_KEYS.SERVICES, services);
   notifyDataUpdate('services-updated');
 
-  setDoc(doc(db, 'services', newService.id), newService).catch((err) =>
-    console.warn('Firestore service creation notice:', err)
-  );
+  setDoc(doc(db, 'services', newService.id), newService)
+    .then(() => clearPendingWrite(newService.id))
+    .catch((err) => console.warn('Firestore service creation notice:', err));
 
   return newService;
 }
@@ -661,13 +731,14 @@ export async function updateService(
     ...services[index],
     ...cleanUpdates,
   };
+  markPendingWrite(id);
   services[index] = updated;
   setItem(STORAGE_KEYS.SERVICES, services);
   notifyDataUpdate('services-updated');
 
-  setDoc(doc(db, 'services', id), cleanUpdates, { merge: true }).catch((err) =>
-    console.warn('Firestore service update notice:', err)
-  );
+  setDoc(doc(db, 'services', id), cleanUpdates, { merge: true })
+    .then(() => clearPendingWrite(id))
+    .catch((err) => console.warn('Firestore service update notice:', err));
 
   return updated;
 }
@@ -724,14 +795,15 @@ export async function createExpense(
     },
   };
 
+  markPendingWrite(newExpense.id);
   const expenses = getItem<Expense[]>(STORAGE_KEYS.EXPENSES, []);
   expenses.unshift(newExpense);
   setItem(STORAGE_KEYS.EXPENSES, expenses);
   notifyDataUpdate('expenses-updated');
 
-  setDoc(doc(db, 'expenses', newExpense.id), newExpense).catch((err) =>
-    console.warn('Firestore expense creation notice:', err)
-  );
+  setDoc(doc(db, 'expenses', newExpense.id), newExpense)
+    .then(() => clearPendingWrite(newExpense.id))
+    .catch((err) => console.warn('Firestore expense creation notice:', err));
 
   return newExpense;
 }
@@ -806,8 +878,10 @@ export async function createTransaction(
           ...updatedProducts[prodIndex],
           stock_quantity: newStock,
         };
-        // Update product in Firestore non-blockingly
-        setDoc(doc(db, 'products', item.item_id), { stock_quantity: newStock }, { merge: true }).catch(console.warn);
+        markPendingWrite(item.item_id);
+        setDoc(doc(db, 'products', item.item_id), { stock_quantity: newStock }, { merge: true })
+          .then(() => clearPendingWrite(item.item_id))
+          .catch(console.warn);
       }
     }
   }
@@ -842,6 +916,7 @@ export async function createTransaction(
     })),
   };
 
+  markPendingWrite(newTxn.id);
   const transactions = getItem<TransactionWithItems[]>(STORAGE_KEYS.TRANSACTIONS, []);
   transactions.unshift(newTxn);
   setItem(STORAGE_KEYS.TRANSACTIONS, transactions);
@@ -851,9 +926,11 @@ export async function createTransaction(
   notifyDataUpdate('products-updated');
 
   // Sync to Firestore non-blockingly so POS checkout is instant and never crashes
-  setDoc(doc(db, 'transactions', newTxn.id), newTxn).catch((err) => {
-    console.warn('Firestore transaction cloud sync notice:', err);
-  });
+  setDoc(doc(db, 'transactions', newTxn.id), newTxn)
+    .then(() => clearPendingWrite(newTxn.id))
+    .catch((err) => {
+      console.warn('Firestore transaction cloud sync notice:', err);
+    });
 
   return newTxn;
 }

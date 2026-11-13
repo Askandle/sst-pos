@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { Profile, Role } from '@/types';
-import { getAllProfiles, createProfile, updateProfilePasswordHash } from '@/db/api';
+import { getAllProfiles, fetchProfilesFromCloud, createProfile, updateProfilePasswordHash } from '@/db/api';
 
 interface User {
   id: string;
@@ -78,9 +78,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load existing session on boot
+  // Load existing session on boot and stay synced when cloud profiles update
   useEffect(() => {
     loadCurrentSession();
+
+    const handleProfilesUpdated = () => {
+      const stored = localStorage.getItem(CURRENT_USER_KEY);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as User;
+          syncProfile(parsed.id);
+        } catch {}
+      }
+    };
+
+    window.addEventListener('profiles-updated', handleProfilesUpdated);
+    return () => window.removeEventListener('profiles-updated', handleProfilesUpdated);
   }, []);
 
   const loadCurrentSession = async () => {
@@ -124,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: new Error('Please enter both username and password.') };
       }
 
-      const profiles = await getAllProfiles();
+      const profiles = await fetchProfilesFromCloud();
       const existing = profiles.find((p) => p.username.toLowerCase() === cleanUsername.toLowerCase());
 
       if (!existing) {
@@ -168,7 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: new Error('Password must be at least 6 characters.') };
       }
 
-      const profiles = await getAllProfiles();
+      const profiles = await fetchProfilesFromCloud();
       const exists = profiles.some((p) => p.username.toLowerCase() === trimmedUsername.toLowerCase());
       if (exists) {
         return { error: new Error('Username already taken. Please choose another.') };
