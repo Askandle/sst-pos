@@ -65,7 +65,7 @@ export default function TransactionsPage() {
 
   const loadTransactions = async () => {
     try {
-      const local = localStorage.getItem('netpos_transactions');
+      const local = localStorage.getItem('S.S.T POS SYSTEM_transactions');
       if (local) {
         try {
           const parsed = JSON.parse(local);
@@ -111,7 +111,7 @@ export default function TransactionsPage() {
 
       // 2. Persist to localStorage immediately
       try {
-        localStorage.setItem('netpos_transactions', JSON.stringify(remaining));
+        localStorage.setItem('S.S.T POS SYSTEM_transactions', JSON.stringify(remaining));
         window.dispatchEvent(new Event('transactions-updated'));
         window.dispatchEvent(new Event('storage'));
       } catch (err) {

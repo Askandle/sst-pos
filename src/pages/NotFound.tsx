@@ -41,7 +41,7 @@ export default function NotFound() {
           </Link>
         </div>
         <p className="mt-8 text-xs text-center text-muted-foreground">
-          &copy; {new Date().getFullYear()} NetPOS Internet Cafe
+          &copy; {new Date().getFullYear()} S.S.T POS SYSTEM Internet Cafe
         </p>
       </div>
     </>
