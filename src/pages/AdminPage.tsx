@@ -14,11 +14,11 @@ interface DatabaseStatsSummary {
 }
 
 const STORAGE_KEYS = {
-  PROFILES: 'S.S.T POS SYSTEM_profiles',
-  PRODUCTS: 'S.S.T POS SYSTEM_products',
-  SERVICES: 'S.S.T POS SYSTEM_services',
-  EXPENSES: 'S.S.T POS SYSTEM_expenses',
-  TRANSACTIONS: 'S.S.T POS SYSTEM_transactions',
+  PROFILES: 'netpos_profiles',
+  PRODUCTS: 'netpos_products',
+  SERVICES: 'netpos_services',
+  EXPENSES: 'netpos_expenses',
+  TRANSACTIONS: 'netpos_transactions',
 };
 
 function getLocalItem<T>(key: string, fallback: T): T {
@@ -66,7 +66,7 @@ function exportDatabaseBackup(): string {
   const payload = {
     version: '1.0.0',
     exported_at: new Date().toISOString(),
-    system: 'S.S.T POS SYSTEM Internet Cafe System',
+    system: 'NetPOS Internet Cafe System',
     collections: {
       profiles: getLocalItem(STORAGE_KEYS.PROFILES, []),
       products: getLocalItem(STORAGE_KEYS.PRODUCTS, []),
@@ -298,7 +298,7 @@ export default function AdminPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `S.S.T POS SYSTEM-database-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `netpos-database-backup-${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -575,11 +575,11 @@ export default function AdminPage() {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Database ID: <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">ai-studio-S.S.T POS SYSTEMinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0</code> in project <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">gen-lang-client-0748679277</code>
+                Database ID: <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0</code> in project <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground font-semibold">gen-lang-client-0748679277</code>
               </p>
             </div>
             <a
-              href="https://console.firebase.google.com/project/gen-lang-client-0748679277/firestore/databases/ai-studio-S.S.T POS SYSTEMinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0/data"
+              href="https://console.firebase.google.com/project/gen-lang-client-0748679277/firestore/databases/ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0/data"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors shrink-0"
@@ -699,7 +699,7 @@ export default function AdminPage() {
         <CardContent className="space-y-2">
           <div className="flex justify-between py-2 border-b border-border">
             <span className="text-muted-foreground">Application</span>
-            <span className="font-medium">S.S.T POS SYSTEM - Sanyali School Of Technology Pos System</span>
+            <span className="font-medium">NetPOS - Internet Cafe POS System</span>
           </div>
           <div className="flex justify-between py-2 border-b border-border">
             <span className="text-muted-foreground">Currency</span>
@@ -711,7 +711,7 @@ export default function AdminPage() {
           </div>
           <div className="flex justify-between py-2 border-b border-border">
             <span className="text-muted-foreground">Firestore Database ID</span>
-            <span className="font-mono text-xs font-semibold">ai-studio-S.S.T POS SYSTEMinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0</span>
+            <span className="font-mono text-xs font-semibold">ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0</span>
           </div>
           <div className="flex justify-between py-2 border-b border-border">
             <span className="text-muted-foreground">Database Collections</span>
