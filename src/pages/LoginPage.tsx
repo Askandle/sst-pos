@@ -134,7 +134,7 @@ export default function LoginPage() {
                 </Button>
                 <div className="pt-2">
                   <p className="text-xs text-muted-foreground text-center">
-                    Quick login: try username <span className="font-semibold text-foreground">admin</span> or <span className="font-semibold text-foreground">sarah_pos</span>
+                    Default credentials: <span className="font-semibold text-foreground">admin</span> / <span className="font-mono font-semibold text-foreground">admin123</span> or <span className="font-semibold text-foreground">sarah_pos</span> / <span className="font-mono font-semibold text-foreground">staff123</span>
                   </p>
                 </div>
               </form>

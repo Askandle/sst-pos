@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllProfiles, updateProfileRole } from '@/db/api';
+import { getAllProfiles, updateProfileRole, deleteProfile } from '@/db/api';
 import type { Profile } from '@/types';
 
 interface DatabaseStatsSummary {
@@ -190,6 +190,14 @@ export default function AdminPage() {
   useEffect(() => {
     if (profile && profile.role === 'admin') {
       loadData();
+
+      const handleUpdate = () => loadData();
+      window.addEventListener('profiles-updated', handleUpdate);
+      window.addEventListener('storage', handleUpdate);
+      return () => {
+        window.removeEventListener('profiles-updated', handleUpdate);
+        window.removeEventListener('storage', handleUpdate);
+      };
     }
   }, [profile]);
 
@@ -241,14 +249,6 @@ export default function AdminPage() {
       return;
     }
 
-    if (targetUser.role === 'admin') {
-      const adminCount = profiles.filter((p) => p.role === 'admin').length;
-      if (adminCount <= 1) {
-        toast.error('Cannot delete the last remaining administrator account.');
-        return;
-      }
-    }
-
     setUserToDelete(targetUser);
     setDeleteConfirmOpen(true);
   };
@@ -259,27 +259,12 @@ export default function AdminPage() {
     const targetName = userToDelete.username;
 
     try {
-      // 1. Immediately remove from React state so UI updates instantly
       const remainingProfiles = profiles.filter((p) => p.id !== targetId);
       setProfiles(remainingProfiles);
       setDeleteConfirmOpen(false);
       setUserToDelete(null);
 
-      // 2. Persist to localStorage immediately
-      try {
-        localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(remainingProfiles));
-      } catch (err) {
-        console.error('Storage write error:', err);
-      }
-
-      // 3. Delete from Firestore in cloud
-      try {
-        const { deleteDoc, doc } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
-        await deleteDoc(doc(db, 'profiles', targetId));
-      } catch (cloudErr) {
-        console.warn('Firestore cloud delete sync notice:', cloudErr);
-      }
+      await deleteProfile(targetId);
 
       refreshDbStats();
       toast.success(`User "${targetName}" deleted successfully`);
@@ -524,13 +509,14 @@ export default function AdminPage() {
                             </SelectContent>
                           </Select>
                           <Button
-                            variant="ghost"
-                            size="icon"
+                            variant="outline"
+                            size="sm"
                             onClick={() => confirmDeleteUser(user)}
-                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 border-2 border-transparent hover:border-destructive/30 rounded-lg cursor-pointer h-9 w-9 shrink-0 transition-colors"
-                            title={`Delete user ${user.username}`}
+                            className="h-9 px-2.5 text-xs font-semibold border-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:border-destructive rounded-lg cursor-pointer flex items-center gap-1 shrink-0 transition-colors"
+                            title={`Delete ${user.role} ${user.username}`}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete
                           </Button>
                         </div>
                       ) : (

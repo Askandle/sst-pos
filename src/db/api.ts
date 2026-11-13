@@ -439,6 +439,20 @@ export async function getAllProfiles(): Promise<Profile[]> {
   return local;
 }
 
+export async function createProfile(newProfile: Profile): Promise<Profile> {
+  const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
+  const exists = profiles.some((p) => p.id === newProfile.id);
+  const updated = exists ? profiles : [...profiles, newProfile];
+  setItem(STORAGE_KEYS.PROFILES, updated);
+  notifyDataUpdate('profiles-updated');
+
+  setDoc(doc(db, 'profiles', newProfile.id), newProfile).catch((err) =>
+    console.warn('Firestore profile creation notice:', err)
+  );
+
+  return newProfile;
+}
+
 export async function updateProfileRole(userId: string, newRole: 'staff' | 'admin'): Promise<void> {
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const updated = profiles.map((p) => (p.id === userId ? { ...p, role: newRole } : p));
@@ -455,6 +469,21 @@ export async function deleteProfile(userId: string): Promise<void> {
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const updated = profiles.filter((p) => p.id !== userId);
   setItem(STORAGE_KEYS.PROFILES, updated);
+
+  // Also remove stored credentials for deleted user
+  try {
+    const rawCreds = localStorage.getItem('netpos_user_credentials');
+    if (rawCreds) {
+      const creds = JSON.parse(rawCreds);
+      if (creds && typeof creds === 'object' && userId in creds) {
+        delete creds[userId];
+        localStorage.setItem('netpos_user_credentials', JSON.stringify(creds));
+      }
+    }
+  } catch (err) {
+    console.warn('Credential cleanup notice:', err);
+  }
+
   notifyDataUpdate('profiles-updated');
 
   deleteDoc(doc(db, 'profiles', userId)).catch((err) =>
