@@ -29,6 +29,7 @@ const STORAGE_KEYS = {
   SERVICES: 'netpos_services',
   EXPENSES: 'netpos_expenses',
   TRANSACTIONS: 'netpos_transactions',
+  DELETED_IDS: 'netpos_deleted_ids',
   INITIALIZED: 'netpos_initialized',
   FIRESTORE_SYNCED: 'netpos_firestore_synced',
 };
@@ -284,19 +285,31 @@ function setItem<T>(key: string, value: T): void {
   }
 }
 
-// Safely merge local and remote collections by id, preserving newly created or edited items
+function getDeletedIds(): Set<string> {
+  const arr = getItem<string[]>(STORAGE_KEYS.DELETED_IDS, []);
+  return new Set(Array.isArray(arr) ? arr : []);
+}
+
+function markIdDeleted(id: string): void {
+  const ids = getDeletedIds();
+  ids.add(id);
+  setItem(STORAGE_KEYS.DELETED_IDS, Array.from(ids));
+}
+
+// Safely merge local and remote collections by id, preserving newly created or edited items and excluding deleted ones
 function safeMergeById<T extends { id: string }>(localList: T[], remoteList: T[]): T[] {
+  const deleted = getDeletedIds();
   const map = new Map<string, T>();
   if (Array.isArray(remoteList)) {
     for (const item of remoteList) {
-      if (item && item.id) {
+      if (item && item.id && !deleted.has(item.id)) {
         map.set(item.id, item);
       }
     }
   }
   if (Array.isArray(localList)) {
     for (const item of localList) {
-      if (item && item.id) {
+      if (item && item.id && !deleted.has(item.id)) {
         map.set(item.id, item);
       }
     }
@@ -309,6 +322,57 @@ function notifyDataUpdate(eventName: string): void {
     window.dispatchEvent(new Event(eventName));
     window.dispatchEvent(new Event('storage'));
   } catch {}
+}
+
+// Track last background sync timestamp per collection to avoid redundant cloud fetches
+const lastSyncTime: Record<string, number> = {};
+const inflightSync: Record<string, boolean> = {};
+const SYNC_COOLDOWN_MS = 15000;
+
+async function withTimeout<T>(promise: Promise<T>, ms = 4000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), ms)),
+  ]);
+}
+
+function syncCollectionInBackground<T extends { id: string }>(
+  collectionName: string,
+  storageKey: string,
+  eventName: string,
+  sortFn?: (a: T, b: T) => number
+): void {
+  const now = Date.now();
+  if (inflightSync[collectionName]) return;
+  if (lastSyncTime[collectionName] && now - lastSyncTime[collectionName] < SYNC_COOLDOWN_MS) return;
+
+  inflightSync[collectionName] = true;
+  lastSyncTime[collectionName] = now;
+
+  withTimeout(getDocs(collection(db, collectionName)), 4000)
+    .then((snapshot) => {
+      if (snapshot.empty) return;
+      const remoteItems: T[] = [];
+      snapshot.forEach((d) => remoteItems.push(d.data() as T));
+
+      const local = getItem<T[]>(storageKey, []);
+      const merged = safeMergeById(local, remoteItems);
+      if (sortFn) merged.sort(sortFn);
+
+      // Only update & notify if merged differs in length or contains new remote IDs
+      const localIds = new Set(local.map((i) => i.id));
+      const hasNewRemote = merged.some((item) => !localIds.has(item.id));
+      if (hasNewRemote) {
+        setItem(storageKey, merged);
+        notifyDataUpdate(eventName);
+      }
+    })
+    .catch((err) => {
+      console.warn(`Background sync notice (${collectionName}):`, err?.message || err);
+    })
+    .finally(() => {
+      inflightSync[collectionName] = false;
+    });
 }
 
 // Bootstrap local storage first
@@ -328,10 +392,10 @@ initializeLocalStorage();
 async function syncFirestoreSeed() {
   if (localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) return;
   try {
-    const isOnline = await testFirestoreConnection();
+    const isOnline = await withTimeout(testFirestoreConnection(), 4000);
     if (!isOnline) return;
 
-    const productsSnap = await getDocs(collection(db, 'products'));
+    const productsSnap = await withTimeout(getDocs(collection(db, 'products')), 4000);
     if (productsSnap.empty) {
       const batch = writeBatch(db);
 
@@ -371,19 +435,7 @@ syncFirestoreSeed();
 // --- Profiles ---
 export async function getAllProfiles(): Promise<Profile[]> {
   const local = getItem<Profile[]>(STORAGE_KEYS.PROFILES, INITIAL_PROFILES);
-
-  try {
-    const snapshot = await getDocs(collection(db, 'profiles'));
-    if (!snapshot.empty) {
-      const remoteItems: Profile[] = [];
-      snapshot.forEach((d) => remoteItems.push(d.data() as Profile));
-      const merged = safeMergeById(local, remoteItems);
-      setItem(STORAGE_KEYS.PROFILES, merged);
-      return merged;
-    }
-  } catch (err) {
-    console.warn('Falling back to local profiles:', err);
-  }
+  syncCollectionInBackground<Profile>('profiles', STORAGE_KEYS.PROFILES, 'profiles-updated');
   return local;
 }
 
@@ -393,26 +445,21 @@ export async function updateProfileRole(userId: string, newRole: 'staff' | 'admi
   setItem(STORAGE_KEYS.PROFILES, updated);
   notifyDataUpdate('profiles-updated');
 
-  try {
-    const ref = doc(db, 'profiles', userId);
-    await setDoc(ref, { role: newRole }, { merge: true });
-  } catch (err) {
-    console.warn('Firestore profile update notice:', err);
-  }
+  setDoc(doc(db, 'profiles', userId), { role: newRole }, { merge: true }).catch((err) =>
+    console.warn('Firestore profile update notice:', err)
+  );
 }
 
 export async function deleteProfile(userId: string): Promise<void> {
+  markIdDeleted(userId);
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const updated = profiles.filter((p) => p.id !== userId);
   setItem(STORAGE_KEYS.PROFILES, updated);
   notifyDataUpdate('profiles-updated');
 
-  try {
-    const ref = doc(db, 'profiles', userId);
-    await deleteDoc(ref);
-  } catch (err) {
-    console.warn('Firestore profile delete notice:', err);
-  }
+  deleteDoc(doc(db, 'profiles', userId)).catch((err) =>
+    console.warn('Firestore profile delete notice:', err)
+  );
 }
 
 // --- Dashboard Stats ---
@@ -452,19 +499,7 @@ export async function getLowStockProducts(threshold = 10): Promise<Product[]> {
 // --- Products ---
 export async function getAllProducts(): Promise<Product[]> {
   const local = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
-
-  try {
-    const snapshot = await getDocs(collection(db, 'products'));
-    if (!snapshot.empty) {
-      const remoteItems: Product[] = [];
-      snapshot.forEach((d) => remoteItems.push(d.data() as Product));
-      const merged = safeMergeById(local, remoteItems);
-      setItem(STORAGE_KEYS.PRODUCTS, merged);
-      return merged;
-    }
-  } catch (err) {
-    console.warn('Falling back to local products:', err);
-  }
+  syncCollectionInBackground<Product>('products', STORAGE_KEYS.PRODUCTS, 'products-updated');
   return local;
 }
 
@@ -492,11 +527,9 @@ export async function createProduct(data: {
   setItem(STORAGE_KEYS.PRODUCTS, products);
   notifyDataUpdate('products-updated');
 
-  try {
-    await setDoc(doc(db, 'products', newProduct.id), newProduct);
-  } catch (err) {
-    console.warn('Firestore product creation notice:', err);
-  }
+  setDoc(doc(db, 'products', newProduct.id), newProduct).catch((err) =>
+    console.warn('Firestore product creation notice:', err)
+  );
 
   return newProduct;
 }
@@ -521,44 +554,29 @@ export async function updateProduct(
   setItem(STORAGE_KEYS.PRODUCTS, products);
   notifyDataUpdate('products-updated');
 
-  try {
-    await setDoc(doc(db, 'products', id), cleanUpdates, { merge: true });
-  } catch (err) {
-    console.warn('Firestore product update notice:', err);
-  }
+  setDoc(doc(db, 'products', id), cleanUpdates, { merge: true }).catch((err) =>
+    console.warn('Firestore product update notice:', err)
+  );
 
   return updated;
 }
 
 export async function deleteProduct(id: string): Promise<void> {
+  markIdDeleted(id);
   const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []);
   const filtered = products.filter((p) => p.id !== id);
   setItem(STORAGE_KEYS.PRODUCTS, filtered);
   notifyDataUpdate('products-updated');
 
-  try {
-    await deleteDoc(doc(db, 'products', id));
-  } catch (err) {
-    console.warn('Firestore product delete notice:', err);
-  }
+  deleteDoc(doc(db, 'products', id)).catch((err) =>
+    console.warn('Firestore product delete notice:', err)
+  );
 }
 
 // --- Services ---
 export async function getAllServices(): Promise<Service[]> {
   const local = getItem<Service[]>(STORAGE_KEYS.SERVICES, INITIAL_SERVICES);
-
-  try {
-    const snapshot = await getDocs(collection(db, 'services'));
-    if (!snapshot.empty) {
-      const remoteItems: Service[] = [];
-      snapshot.forEach((d) => remoteItems.push(d.data() as Service));
-      const merged = safeMergeById(local, remoteItems);
-      setItem(STORAGE_KEYS.SERVICES, merged);
-      return merged;
-    }
-  } catch (err) {
-    console.warn('Falling back to local services:', err);
-  }
+  syncCollectionInBackground<Service>('services', STORAGE_KEYS.SERVICES, 'services-updated');
   return local;
 }
 
@@ -582,11 +600,9 @@ export async function createService(data: {
   setItem(STORAGE_KEYS.SERVICES, services);
   notifyDataUpdate('services-updated');
 
-  try {
-    await setDoc(doc(db, 'services', newService.id), newService);
-  } catch (err) {
-    console.warn('Firestore service creation notice:', err);
-  }
+  setDoc(doc(db, 'services', newService.id), newService).catch((err) =>
+    console.warn('Firestore service creation notice:', err)
+  );
 
   return newService;
 }
@@ -610,47 +626,37 @@ export async function updateService(
   setItem(STORAGE_KEYS.SERVICES, services);
   notifyDataUpdate('services-updated');
 
-  try {
-    await setDoc(doc(db, 'services', id), cleanUpdates, { merge: true });
-  } catch (err) {
-    console.warn('Firestore service update notice:', err);
-  }
+  setDoc(doc(db, 'services', id), cleanUpdates, { merge: true }).catch((err) =>
+    console.warn('Firestore service update notice:', err)
+  );
 
   return updated;
 }
 
 export async function deleteService(id: string): Promise<void> {
+  markIdDeleted(id);
   const services = getItem<Service[]>(STORAGE_KEYS.SERVICES, []);
   const filtered = services.filter((s) => s.id !== id);
   setItem(STORAGE_KEYS.SERVICES, filtered);
   notifyDataUpdate('services-updated');
 
-  try {
-    await deleteDoc(doc(db, 'services', id));
-  } catch (err) {
-    console.warn('Firestore service delete notice:', err);
-  }
+  deleteDoc(doc(db, 'services', id)).catch((err) =>
+    console.warn('Firestore service delete notice:', err)
+  );
 }
 
 // --- Expenses ---
 export async function getExpenses(limit = 100): Promise<Expense[]> {
   const local = getItem<Expense[]>(STORAGE_KEYS.EXPENSES, INITIAL_EXPENSES);
-
-  try {
-    const snapshot = await getDocs(collection(db, 'expenses'));
-    if (!snapshot.empty) {
-      const remoteItems: Expense[] = [];
-      snapshot.forEach((d) => remoteItems.push(d.data() as Expense));
-      const merged = safeMergeById(local, remoteItems);
-      merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setItem(STORAGE_KEYS.EXPENSES, merged);
-      return merged.slice(0, limit);
-    }
-  } catch (err) {
-    console.warn('Falling back to local expenses:', err);
-  }
-
   local.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  syncCollectionInBackground<Expense>(
+    'expenses',
+    STORAGE_KEYS.EXPENSES,
+    'expenses-updated',
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   return local.slice(0, limit);
 }
 
@@ -684,61 +690,50 @@ export async function createExpense(
   setItem(STORAGE_KEYS.EXPENSES, expenses);
   notifyDataUpdate('expenses-updated');
 
-  try {
-    await setDoc(doc(db, 'expenses', newExpense.id), newExpense);
-  } catch (err) {
-    console.warn('Firestore expense creation notice:', err);
-  }
+  setDoc(doc(db, 'expenses', newExpense.id), newExpense).catch((err) =>
+    console.warn('Firestore expense creation notice:', err)
+  );
 
   return newExpense;
 }
 
 export async function deleteExpense(id: string): Promise<void> {
+  markIdDeleted(id);
   const expenses = getItem<Expense[]>(STORAGE_KEYS.EXPENSES, []);
   const filtered = expenses.filter((e) => e.id !== id);
   setItem(STORAGE_KEYS.EXPENSES, filtered);
   notifyDataUpdate('expenses-updated');
 
-  try {
-    await deleteDoc(doc(db, 'expenses', id));
-  } catch (err) {
-    console.warn('Firestore expense delete notice:', err);
-  }
+  deleteDoc(doc(db, 'expenses', id)).catch((err) =>
+    console.warn('Firestore expense delete notice:', err)
+  );
 }
 
 // --- Transactions ---
 export async function getTransactions(limit = 100): Promise<TransactionWithItems[]> {
   const local = getItem<TransactionWithItems[]>(STORAGE_KEYS.TRANSACTIONS, INITIAL_TRANSACTIONS);
-
-  try {
-    const snapshot = await getDocs(collection(db, 'transactions'));
-    if (!snapshot.empty) {
-      const remoteItems: TransactionWithItems[] = [];
-      snapshot.forEach((d) => remoteItems.push(d.data() as TransactionWithItems));
-      const merged = safeMergeById(local, remoteItems);
-      merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setItem(STORAGE_KEYS.TRANSACTIONS, merged);
-      return merged.slice(0, limit);
-    }
-  } catch (err) {
-    console.warn('Falling back to local transactions:', err);
-  }
-
   local.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  syncCollectionInBackground<TransactionWithItems>(
+    'transactions',
+    STORAGE_KEYS.TRANSACTIONS,
+    'transactions-updated',
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   return local.slice(0, limit);
 }
 
 export async function deleteTransaction(id: string): Promise<void> {
+  markIdDeleted(id);
   const transactions = getItem<TransactionWithItems[]>(STORAGE_KEYS.TRANSACTIONS, []);
   const filtered = transactions.filter((t) => t.id !== id);
   setItem(STORAGE_KEYS.TRANSACTIONS, filtered);
   notifyDataUpdate('transactions-updated');
 
-  try {
-    await deleteDoc(doc(db, 'transactions', id));
-  } catch (err) {
-    console.warn('Firestore transaction delete notice:', err);
-  }
+  deleteDoc(doc(db, 'transactions', id)).catch((err) =>
+    console.warn('Firestore transaction delete notice:', err)
+  );
 }
 
 export async function createTransaction(
@@ -816,12 +811,10 @@ export async function createTransaction(
   notifyDataUpdate('transactions-updated');
   notifyDataUpdate('products-updated');
 
-  // Sync to Firestore non-blockingly so POS checkout NEVER crashes
-  try {
-    await setDoc(doc(db, 'transactions', newTxn.id), newTxn);
-  } catch (err) {
+  // Sync to Firestore non-blockingly so POS checkout is instant and never crashes
+  setDoc(doc(db, 'transactions', newTxn.id), newTxn).catch((err) => {
     console.warn('Firestore transaction cloud sync notice:', err);
-  }
+  });
 
   return newTxn;
 }

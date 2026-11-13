@@ -87,9 +87,9 @@ SST POS is powered by **Google Cloud Firebase Firestore** with instant real-time
 
 ### 1. Direct Web Console Access
 You can view, query, edit, and export records directly through the Google Cloud Firebase Console:
-- **Firebase Console URL**: [Open Firestore Database](https://console.firebase.google.com/project/gen-lang-client-0748679277/firestore/databases/ai-studio-SST POSinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0/data)
+- **Firebase Console URL**: [Open Firestore Database](https://console.firebase.google.com/project/gen-lang-client-0748679277/firestore/databases/ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0/data)
 - **Project ID**: `gen-lang-client-0748679277`
-- **Database ID**: `ai-studio-SST POSinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0`
+- **Database ID**: `ai-studio-netposinternetca-099c30e9-2795-4450-ba1f-3fb8b3b40af0`
 
 ### 2. Database Collections
 The database is organized into 5 structured collections:

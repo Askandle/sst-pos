@@ -19,8 +19,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const CURRENT_USER_KEY = 'SST POS_current_user';
-const USERS_CREDENTIALS_KEY = 'SST POS_user_credentials';
+const CURRENT_USER_KEY = 'netpos_current_user';
+const USERS_CREDENTIALS_KEY = 'netpos_user_credentials';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       const updatedProfiles = [...profiles, newProfile];
-      localStorage.setItem('SST POS_profiles', JSON.stringify(updatedProfiles));
+      localStorage.setItem('netpos_profiles', JSON.stringify(updatedProfiles));
 
       const sessionUser: User = { id: newProfile.id, username: newProfile.username };
       setUser(sessionUser);

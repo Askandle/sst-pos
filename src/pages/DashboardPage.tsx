@@ -31,7 +31,7 @@ export default function DashboardPage() {
       // 1. Transactions & Sales (Read directly from active localStorage)
       let txns: TransactionWithItems[] = [];
       try {
-        const storedTxns = localStorage.getItem('SST POS_transactions');
+        const storedTxns = localStorage.getItem('netpos_transactions');
         if (storedTxns) {
           txns = JSON.parse(storedTxns);
         }
@@ -50,7 +50,7 @@ export default function DashboardPage() {
       // 2. Expenses (Read directly from active localStorage)
       let expenses: any[] = [];
       try {
-        const storedExpenses = localStorage.getItem('SST POS_expenses');
+        const storedExpenses = localStorage.getItem('netpos_expenses');
         if (storedExpenses) {
           expenses = JSON.parse(storedExpenses);
         }
@@ -65,7 +65,7 @@ export default function DashboardPage() {
       // 3. Products & Low Stock
       let products: Product[] = [];
       try {
-        const storedProducts = localStorage.getItem('SST POS_products');
+        const storedProducts = localStorage.getItem('netpos_products');
         if (storedProducts) {
           products = JSON.parse(storedProducts);
         }

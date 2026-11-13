@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getTransactions } from '@/db/api';
+import { getTransactions, deleteTransaction } from '@/db/api';
 import type { TransactionWithItems } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -65,7 +65,7 @@ export default function TransactionsPage() {
 
   const loadTransactions = async () => {
     try {
-      const local = localStorage.getItem('SST POS_transactions');
+      const local = localStorage.getItem('netpos_transactions');
       if (local) {
         try {
           const parsed = JSON.parse(local);
@@ -102,31 +102,13 @@ export default function TransactionsPage() {
     const targetNum = txnToDelete.transaction_number;
 
     try {
-      // 1. Immediately remove from React state so UI updates instantly
       const remaining = transactions.filter((t) => t.id !== targetId);
       setTransactions(remaining);
       setDeleteConfirmOpen(false);
       setDetailsOpen(false);
       setTxnToDelete(null);
 
-      // 2. Persist to localStorage immediately
-      try {
-        localStorage.setItem('SST POS_transactions', JSON.stringify(remaining));
-        window.dispatchEvent(new Event('transactions-updated'));
-        window.dispatchEvent(new Event('storage'));
-      } catch (err) {
-        console.error('Storage write error:', err);
-      }
-
-      // 3. Delete from Firestore in cloud
-      try {
-        const { deleteDoc, doc } = await import('firebase/firestore');
-        const { db } = await import('@/lib/firebase');
-        await deleteDoc(doc(db, 'transactions', targetId));
-      } catch (cloudErr) {
-        console.warn('Firestore transaction delete sync notice:', cloudErr);
-      }
-
+      await deleteTransaction(targetId);
       toast.success(`Transaction "${targetNum}" deleted successfully`);
     } catch (error) {
       console.error('Error deleting transaction:', error);
