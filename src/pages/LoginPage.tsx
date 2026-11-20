@@ -1,15 +1,55 @@
-import { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Loader2, Store } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+
+interface FireflyConfig {
+  id: number;
+  size: number;
+  duration: number;
+  delay: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  x3: number;
+  y3: number;
+  x4: number;
+  y4: number;
+  x5: number;
+  y5: number;
+}
+
+function randomBetween(min: number, max: number): number {
+  return Math.random() * (max - min) + min;
+}
+
+function generateFireflies(): FireflyConfig[] {
+  return Array.from({ length: 18 }, (_, i) => ({
+    id: i,
+    size: randomBetween(3, 7),
+    duration: randomBetween(35, 65),
+    delay: randomBetween(0, 3),
+    x1: randomBetween(0, 100),
+    y1: randomBetween(0, 100),
+    x2: randomBetween(0, 100),
+    y2: randomBetween(0, 100),
+    x3: randomBetween(0, 100),
+    y3: randomBetween(0, 100),
+    x4: randomBetween(0, 100),
+    y4: randomBetween(0, 100),
+    x5: randomBetween(0, 100),
+    y5: randomBetween(0, 100),
+  }));
+}
 
 export default function LoginPage() {
+  const [isOn, setIsOn] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [fireflySeed, setFireflySeed] = useState(0);
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [loginUsername, setLoginUsername] = useState('');
@@ -18,11 +58,96 @@ export default function LoginPage() {
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  const handleRef = useRef<HTMLDivElement>(null);
+  const pathRef = useRef<SVGPathElement>(null);
+  const dragState = useRef({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    dragX: 0,
+    dragY: 0,
+    downAt: 0,
+  });
+
   const { signInWithUsername, signUpWithUsername } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as { from?: string })?.from || '/';
+
+  const fireflies = useMemo(() => {
+    if (!isOn) return [];
+    return generateFireflies();
+  }, [isOn, fireflySeed]);
+
+  const updateString = (x: number, y: number) => {
+    if (pathRef.current) {
+      pathRef.current.setAttribute('d', `M 0 0 L ${x} ${80 + y}`);
+    }
+  };
+
+  const resetHandle = () => {
+    if (handleRef.current) {
+      handleRef.current.style.transform = 'translate(0px, 0px)';
+    }
+    updateString(0, 0);
+  };
+
+  const toggleLamp = (nextOn: boolean) => {
+    setIsOn(nextOn);
+    if (nextOn) {
+      setFireflySeed((s) => s + 1);
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragState.current = {
+      dragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      dragX: 0,
+      dragY: 0,
+      downAt: Date.now(),
+    };
+    setIsDragging(true);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragState.current.dragging) return;
+    let dragX = (e.clientX - dragState.current.startX) * 0.3;
+    let dragY = Math.max(0, e.clientY - dragState.current.startY) * 0.6;
+    dragX = Math.max(-35, Math.min(35, dragX));
+    dragY = Math.min(180, dragY);
+
+    dragState.current.dragX = dragX;
+    dragState.current.dragY = dragY;
+
+    if (handleRef.current) {
+      handleRef.current.style.transform = `translate(${dragX}px, ${dragY}px)`;
+    }
+    updateString(dragX, dragY);
+  };
+
+  const handlePointerUp = () => {
+    if (!dragState.current.dragging) return;
+    const { dragX, dragY, downAt } = dragState.current;
+    dragState.current.dragging = false;
+    setIsDragging(false);
+
+    const elapsed = Date.now() - downAt;
+    const pulled = dragY > 24 || (elapsed < 280 && Math.abs(dragX) < 6 && dragY < 8);
+    resetHandle();
+
+    if (pulled) {
+      toggleLamp(!isOn);
+    }
+  };
+
+  const switchMode = (nextMode: 'login' | 'signup') => {
+    setMode(nextMode);
+    setAuthError(null);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,110 +230,195 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/10 p-4">
-      <Card className="w-full max-w-md shadow-xl border-2 border-primary/40 dark:border-primary/40 rounded-2xl bg-card">
-        <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="p-3 bg-primary rounded-full shadow-sm">
-              <Store className="h-8 w-8 text-primary-foreground" />
-            </div>
+    <main className={`lamp-login-page room${isOn ? ' on' : ''}`} id="room">
+      <div className="room-light" id="roomLight" />
+
+      <div className="prompt" aria-hidden="true">
+        <span>Pull the cord</span>
+        <i />
+      </div>
+
+      <div className="fireflies" id="fireflies">
+        {fireflies.map((dot) => (
+          <span
+            key={dot.id}
+            className="firefly"
+            style={
+              {
+                width: `${dot.size}px`,
+                height: `${dot.size}px`,
+                '--duration': `${dot.duration}s`,
+                '--delay': `${dot.delay}s`,
+                '--x1': `${dot.x1}vw`,
+                '--y1': `${dot.y1}vh`,
+                '--x2': `${dot.x2}vw`,
+                '--y2': `${dot.y2}vh`,
+                '--x3': `${dot.x3}vw`,
+                '--y3': `${dot.y3}vh`,
+                '--x4': `${dot.x4}vw`,
+                '--y4': `${dot.y4}vh`,
+                '--x5': `${dot.x5}vw`,
+                '--y5': `${dot.y5}vh`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+
+      <section className="lamp-side">
+        <div className="lamp-container" id="lampContainer">
+          <div className="lamp-glow" />
+          <div className="lamp-head" />
+          <div className="light-beam" />
+          <div className="lamp-stem" />
+          <div className="lamp-base" />
+          <div className="desk-surface" />
+
+          <svg className="string-svg" aria-hidden="true">
+            <path ref={pathRef} id="stringPath" d="M 0 0 L 0 80" />
+          </svg>
+
+          <div
+            ref={handleRef}
+            className={`string-handle${isDragging ? ' dragging' : ''}`}
+            id="stringHandle"
+            role="button"
+            tabIndex={0}
+            aria-label={isOn ? 'Pull cord to turn lamp off' : 'Pull cord to turn lamp on'}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleLamp(!isOn);
+              }
+            }}
+          />
+        </div>
+      </section>
+
+      <section className="login-side">
+        <form
+          className="glass login-card"
+          id="loginForm"
+          onSubmit={mode === 'login' ? handleLogin : handleSignup}
+        >
+          <div className="glass-line" />
+
+          <div className="login-heading">
+            <h2>{mode === 'login' ? 'Welcome Back' : 'Create Account'}</h2>
+            <p>S.S.T POS • Sanyali School of Technology</p>
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">S.S.T POS</CardTitle>
-          <CardDescription>Sanyali School of Technology — Sign in to access the system</CardDescription>
-        </CardHeader>
-        <CardContent>
+
+          <div className="mode-switch" role="tablist" aria-label="Authentication mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'login'}
+              className={`mode-btn${mode === 'login' ? ' active' : ''}`}
+              onClick={() => switchMode('login')}
+              disabled={isLoading}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'signup'}
+              className={`mode-btn${mode === 'signup' ? ' active' : ''}`}
+              onClick={() => switchMode('signup')}
+              disabled={isLoading}
+            >
+              Sign Up
+            </button>
+          </div>
+
           {authError && (
-            <div className="mb-4 rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
+            <div className="rounded-xl border border-red-400/40 bg-red-500/15 px-3.5 py-2.5 text-sm font-medium text-red-200">
               {authError}
             </div>
           )}
-          <Tabs defaultValue="login" className="w-full" onValueChange={() => setAuthError(null)}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="login">
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="login-username">Username</Label>
-                  <Input
-                    id="login-username"
-                    type="text"
-                    placeholder="Enter your username"
-                    value={loginUsername}
-                    onChange={(e) => setLoginUsername(e.target.value)}
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="login-password">Password</Label>
-                  <Input
-                    id="login-password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    disabled={isLoading}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Login
-                </Button>
-              </form>
-            </TabsContent>
 
-            <TabsContent value="signup">
-              <form onSubmit={handleSignup} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-username">Username</Label>
-                  <Input
-                    id="signup-username"
-                    type="text"
-                    placeholder="Choose a username"
-                    value={signupUsername}
-                    onChange={(e) => setSignupUsername(e.target.value)}
-                    disabled={isLoading}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Letters, numbers, underscores, dots, or hyphens allowed
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    placeholder="Create a password (min 6 chars)"
-                    value={signupPassword}
-                    onChange={(e) => setSignupPassword(e.target.value)}
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    disabled={isLoading}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Sign Up
-                </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  First user will be assigned as admin
-                </p>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-    </div>
+          {mode === 'login' ? (
+            <div className="inputs">
+              <label className="input-wrap">
+                <span className="input-icon user-icon" aria-hidden="true" />
+                <input
+                  type="text"
+                  placeholder="Username"
+                  autoComplete="username"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  disabled={isLoading}
+                />
+              </label>
+
+              <label className="input-wrap">
+                <span className="input-icon lock-icon" aria-hidden="true" />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="inputs">
+              <label className="input-wrap">
+                <span className="input-icon user-icon" aria-hidden="true" />
+                <input
+                  type="text"
+                  placeholder="Choose a username"
+                  autoComplete="username"
+                  value={signupUsername}
+                  onChange={(e) => setSignupUsername(e.target.value)}
+                  disabled={isLoading}
+                />
+              </label>
+
+              <label className="input-wrap">
+                <span className="input-icon lock-icon" aria-hidden="true" />
+                <input
+                  type="password"
+                  placeholder="Password (min 6 characters)"
+                  autoComplete="new-password"
+                  value={signupPassword}
+                  onChange={(e) => setSignupPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </label>
+
+              <label className="input-wrap">
+                <span className="input-icon lock-icon" aria-hidden="true" />
+                <input
+                  type="password"
+                  placeholder="Confirm Password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </label>
+            </div>
+          )}
+
+          <button className="sign-in" type="submit" disabled={isLoading}>
+            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {mode === 'login' ? 'Sign In' : 'Create Account'}
+          </button>
+
+          <div className="divider">
+            <span />
+            <b>{mode === 'signup' ? 'NEW STAFF ACCOUNT' : 'AUTHORIZED ACCESS ONLY'}</b>
+            <span />
+          </div>
+        </form>
+      </section>
+    </main>
   );
 }

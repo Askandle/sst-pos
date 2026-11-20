@@ -7,6 +7,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
+import { Toaster } from 'sonner';
 
 import DashboardPage from '@/pages/DashboardPage';
 import ServicesPage from '@/pages/ServicesPage';
@@ -64,6 +65,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <Toaster position="top-right" richColors />
     </AuthProvider>
   );
 }
