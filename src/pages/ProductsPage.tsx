@@ -326,11 +326,11 @@ export default function ProductsPage() {
                     <Label htmlFor="product-image">Product Image</Label>
                     <div className="flex items-center gap-4">
                       {imagePreview ? (
-                        <div className="relative w-32 h-32 border border-border rounded-lg overflow-hidden bg-muted">
+                        <div className="relative w-32 h-32 aspect-square border border-border rounded-lg overflow-hidden bg-muted/40 p-1 flex items-center justify-center">
                           <img
                             src={imagePreview}
                             alt="Preview"
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
                             onError={(e) => {
                               (e.currentTarget as HTMLElement).style.display = 'none';
                             }}
@@ -450,11 +450,11 @@ export default function ProductsPage() {
             {categoryProducts.map((product) => (
               <Card key={product.id} className="border-2 border-emerald-500/35 dark:border-emerald-400/35 hover:border-emerald-500 rounded-xl transition-all shadow-xs hover:shadow-md bg-card overflow-hidden">
                 {product.image_url && (
-                  <div className="w-full h-48 overflow-hidden rounded-t-lg bg-muted border-b-2 border-emerald-500/20">
+                  <div className="w-full aspect-square overflow-hidden rounded-t-lg bg-muted/40 border-b-2 border-emerald-500/20 flex items-center justify-center p-2">
                     <img
                       src={product.image_url}
                       alt={product.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                       referrerPolicy="no-referrer"
                       onError={(e) => {
                         (e.currentTarget as HTMLElement).style.display = 'none';
