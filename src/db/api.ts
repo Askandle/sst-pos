@@ -639,14 +639,15 @@ export async function deleteProfile(userId: string): Promise<void> {
 
 // --- Dashboard Stats ---
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const transactions = await getTransactions(500);
-  const expenses = await getExpenses(500);
+  const transactions = await getTransactions(2000);
+  const expenses = await getExpenses(2000);
   const products = await getAllProducts();
 
   const today = new Date().toISOString().split('T')[0];
 
-  const todayTransactionsList = transactions.filter((t) => {
-    return Boolean(t.created_at?.startsWith(today) && t.status === 'completed');
+  const completedTransactions = transactions.filter((t) => t.status === 'completed');
+  const todayTransactionsList = completedTransactions.filter((t) => {
+    return Boolean(t.created_at?.startsWith(today));
   });
 
   const todaySales = todayTransactionsList.reduce((sum, t) => sum + Number(t.total_amount || 0), 0);
@@ -658,11 +659,30 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   const lowStockProducts = products.filter((p) => Number(p.stock_quantity ?? 0) <= 10).length;
 
+  const overallSales = completedTransactions.reduce((sum, t) => sum + Number(t.total_amount || 0), 0);
+  const overallTransactions = completedTransactions.length;
+  const overallExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const overallNetTotal = overallSales - overallExpenses;
+
+  const activeDays = new Set<string>();
+  for (const t of completedTransactions) {
+    if (t.created_at) activeDays.add(t.created_at.slice(0, 10));
+  }
+  for (const e of expenses) {
+    if (e.expense_date) activeDays.add(String(e.expense_date).slice(0, 10));
+    else if (e.created_at) activeDays.add(String(e.created_at).slice(0, 10));
+  }
+
   return {
     todaySales,
     todayTransactions,
     todayExpenses,
     lowStockProducts,
+    overallSales,
+    overallTransactions,
+    overallExpenses,
+    overallNetTotal,
+    activeDaysCount: activeDays.size,
   };
 }
 

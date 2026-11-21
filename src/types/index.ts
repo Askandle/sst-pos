@@ -92,4 +92,9 @@ export interface DashboardStats {
   todayTransactions: number;
   todayExpenses: number;
   lowStockProducts: number;
+  overallSales: number;
+  overallTransactions: number;
+  overallExpenses: number;
+  overallNetTotal: number;
+  activeDaysCount: number;
 }

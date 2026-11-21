@@ -16,9 +16,11 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import SearchItemsDialog from '@/components/SearchItemsDialog';
 
 export default function Navbar() {
   const { user, profile, signOut } = useAuth();
@@ -28,6 +30,7 @@ export default function Navbar() {
   const [cartCount, setCartCount] = useState(0);
   const [isDark, setIsDark] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem('sst_sidebar_collapsed') === 'true';
@@ -35,6 +38,17 @@ export default function Navbar() {
       return false;
     }
   });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     const updateCart = () => {
@@ -109,7 +123,7 @@ export default function Navbar() {
   ];
 
   const renderSidebarContent = (isCompact: boolean, isMobile = false) => (
-    <div className="relative flex flex-col h-full rounded-2xl border border-slate-200/80 dark:border-white/15 ring-1 ring-inset ring-white/70 dark:ring-white/10 bg-white/88 dark:bg-slate-900/82 backdrop-blur-md shadow-[0_8px_28px_rgba(15,23,42,0.08)] dark:shadow-[0_8px_28px_rgba(0,0,0,0.45)] overflow-hidden">
+    <div className="relative flex flex-col h-full rounded-2xl border border-slate-200/80 dark:border-white/15 ring-1 ring-inset ring-white/70 dark:ring-white/10 bg-white/88 dark:bg-slate-900/82 backdrop-blur-md shadow-[0_8px_28px_rgba(15,23,42,0.08)] dark:shadow-[0_8px_28px_rgba(0,0,0,0.45)] overflow-hidden glass-section">
       {/* Subtle glass top specular sheen */}
       <div
         aria-hidden="true"
@@ -185,8 +199,34 @@ export default function Navbar() {
         </div>
       )}
 
+      {/* Search Items Button */}
+      <div className="px-2.5 pt-3 pb-1">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            if (isMobile) setMobileMenuOpen(false);
+            setSearchOpen(true);
+          }}
+          title="Search items (Ctrl+K)"
+          className={`w-full ${
+            isCompact ? 'justify-center px-2 h-9' : 'justify-between px-3 h-9'
+          } rounded-xl border border-slate-200/80 dark:border-white/15 bg-white/75 dark:bg-white/5 hover:bg-white dark:hover:bg-white/12 text-slate-700 dark:text-slate-200 cursor-pointer shadow-2xs`}
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <Search className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0" />
+            {!isCompact && <span className="text-xs font-medium truncate">Search Items</span>}
+          </span>
+          {!isCompact && (
+            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-muted-foreground border border-border/60 shrink-0">
+              Ctrl K
+            </kbd>
+          )}
+        </Button>
+      </div>
+
       {/* Navigation Links */}
-      <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1.5">
+      <nav className="flex-1 overflow-y-auto px-2.5 py-2 space-y-1.5">
         {navLinks.map((link) => {
           const Icon = link.icon;
           const isActive = location.pathname === link.to;
@@ -339,7 +379,17 @@ export default function Navbar() {
             </Link>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search items"
+              title="Search items"
+              className="rounded-xl text-foreground/80 hover:text-foreground hover:bg-slate-200/50 dark:hover:bg-white/10"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
             {cartCount > 0 && (
               <Link
                 to="/checkout"
@@ -374,6 +424,8 @@ export default function Navbar() {
           </aside>
         </div>
       )}
+
+      <SearchItemsDialog open={searchOpen} onOpenChange={setSearchOpen} />
     </>
   );
 }

@@ -30,12 +30,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ShoppingCart, Plus, Minus, Package, Edit, Trash2, ImageIcon } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Package, Edit, Trash2, ImageIcon, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -264,7 +265,17 @@ export default function ProductsPage() {
     }
   };
 
-  const groupedProducts = products.reduce((acc, product) => {
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredProducts = normalizedQuery
+    ? products.filter(
+        (product) =>
+          product.name.toLowerCase().includes(normalizedQuery) ||
+          product.category.toLowerCase().includes(normalizedQuery) ||
+          (product.description || '').toLowerCase().includes(normalizedQuery)
+      )
+    : products;
+
+  const groupedProducts = filteredProducts.reduce((acc, product) => {
     if (!acc[product.category]) {
       acc[product.category] = [];
     }
@@ -275,7 +286,7 @@ export default function ProductsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div>
+        <div className="glass-surface glass-header-bar glass-section">
           <h1 className="text-3xl font-bold tracking-tight">Products</h1>
           <p className="text-muted-foreground">Select products for checkout</p>
         </div>
@@ -298,7 +309,7 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="glass-surface glass-header-bar glass-section flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Products</h1>
           <p className="text-muted-foreground">
@@ -440,6 +451,78 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {/* Glass Search Bar */}
+      <form
+        onSubmit={(e) => e.preventDefault()}
+        className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
+      >
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search products by name, category, or description..."
+            className="pl-9 pr-9 h-10 rounded-xl border-2 border-emerald-500/30 focus-visible:ring-emerald-500"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear product search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="submit"
+            className="h-10 px-4 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Search className="mr-2 h-4 w-4" />
+            Search
+          </Button>
+          {searchQuery && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSearchQuery('')}
+              className="h-10 px-3 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </form>
+
+      {Object.keys(groupedProducts).length === 0 ? (
+        <Card className="border-2 border-emerald-500/30 rounded-xl shadow-xs">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+            <Search className="h-12 w-12 text-muted-foreground opacity-50" />
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">No matching products found</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                {searchQuery
+                  ? `No products matched "${searchQuery}".`
+                  : 'No products available in inventory.'}
+              </p>
+            </div>
+            {searchQuery && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSearchQuery('')}
+                className="cursor-pointer"
+              >
+                Clear Search
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {Object.entries(groupedProducts).map(([category, categoryProducts]) => (
         <div key={category} className="space-y-4">
           <h2 className="text-xl font-semibold capitalize flex items-center gap-2">
@@ -447,8 +530,12 @@ export default function ProductsPage() {
             {category}
           </h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {categoryProducts.map((product) => (
-              <Card key={product.id} className="border-2 border-emerald-500/35 dark:border-emerald-400/35 hover:border-emerald-500 rounded-xl transition-all shadow-xs hover:shadow-md bg-card overflow-hidden">
+            {categoryProducts.map((product, idx) => (
+              <Card
+                key={product.id}
+                style={{ animationDelay: `${Math.min(idx, 5) * 45}ms` }}
+                className="border-2 border-emerald-500/35 dark:border-emerald-400/35 hover:border-emerald-500 rounded-xl shadow-xs hover:shadow-md overflow-hidden"
+              >
                 {product.image_url && (
                   <div className="w-full aspect-square overflow-hidden rounded-t-lg bg-muted/40 border-b-2 border-emerald-500/20 flex items-center justify-center p-2">
                     <img

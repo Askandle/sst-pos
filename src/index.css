@@ -130,6 +130,176 @@
   }
 }
 
+/* Global Crisp Frosted Glass & Animation System */
+.glass-surface {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 8px 26px rgba(15, 23, 42, 0.06);
+}
+
+.dark .glass-surface {
+  background: rgba(15, 23, 42, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.glass-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.95),
+    transparent
+  );
+}
+
+.dark .glass-surface::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.28),
+    transparent
+  );
+}
+
+.glass-section {
+  animation: glassSectionEnter 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.glass-stagger-1 { animation-delay: 40ms; }
+.glass-stagger-2 { animation-delay: 80ms; }
+.glass-stagger-3 { animation-delay: 120ms; }
+.glass-stagger-4 { animation-delay: 160ms; }
+.glass-stagger-5 { animation-delay: 200ms; }
+.glass-stagger-6 { animation-delay: 240ms; }
+
+@keyframes glassSectionEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.glass-animated {
+  transition:
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.glass-animated::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 55%;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transform: translateX(-160%) skewX(-20deg);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.42),
+    transparent
+  );
+  transition:
+    transform 650ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 250ms ease;
+}
+
+.dark .glass-animated::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.11),
+    transparent
+  );
+}
+
+.glass-animated:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 14px 32px rgba(15, 23, 42, 0.09);
+}
+
+.dark .glass-animated:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 14px 34px rgba(0, 0, 0, 0.48);
+}
+
+.glass-animated:hover::after {
+  opacity: 1;
+  transform: translateX(260%) skewX(-20deg);
+}
+
+.glass-header-bar {
+  border-radius: 1rem;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  padding: 1rem 1.25rem;
+}
+
+.dark .glass-header-bar {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.glass-orb-a {
+  animation: glassOrbDriftA 18s ease-in-out infinite alternate;
+}
+
+.glass-orb-b {
+  animation: glassOrbDriftB 22s ease-in-out infinite alternate;
+}
+
+@keyframes glassOrbDriftA {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(48px, 32px, 0) scale(1.08);
+  }
+}
+
+@keyframes glassOrbDriftB {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(-44px, -28px, 0) scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-section,
+  .glass-orb-a,
+  .glass-orb-b {
+    animation: none !important;
+  }
+  .glass-animated,
+  .glass-animated::after {
+    transition: none !important;
+  }
+  .glass-animated:hover {
+    transform: none !important;
+  }
+}
+
 /* Scoped Animated Lamp Login Page */
 .lamp-login-page {
   font-family: 'Outfit', system-ui, -apple-system, sans-serif;

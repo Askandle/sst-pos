@@ -141,7 +141,7 @@ export default function CheckoutPage() {
   if (cart.length === 0) {
     return (
       <div className="space-y-6">
-        <div>
+        <div className="glass-surface glass-header-bar glass-section">
           <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
           <p className="text-muted-foreground">Complete your transaction</p>
         </div>
@@ -223,7 +223,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="glass-surface glass-header-bar glass-section flex items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
           <p className="text-muted-foreground">Enter customer details and complete transaction</p>
@@ -244,7 +244,7 @@ export default function CheckoutPage() {
               {cart.map((item, index) => (
                 <div
                   key={index}
-                  className="flex items-center gap-4 p-4 border-2 border-sky-500/25 dark:border-sky-400/25 hover:border-sky-500/50 rounded-xl bg-card transition-colors shadow-2xs"
+                  className="glass-surface glass-animated flex items-center gap-4 p-4 border-2 border-sky-500/25 dark:border-sky-400/25 hover:border-sky-500/50 rounded-xl shadow-2xs"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -291,7 +291,7 @@ export default function CheckoutPage() {
         </div>
 
         <div className="space-y-4">
-          <Card className="border-2 border-emerald-500/40 dark:border-emerald-400/40 rounded-xl shadow-xs bg-card">
+          <Card className="glass-stagger-2 border-2 border-emerald-500/40 dark:border-emerald-400/40 rounded-xl shadow-xs">
             <CardHeader>
               <CardTitle>Customer &amp; Payment Details</CardTitle>
             </CardHeader>

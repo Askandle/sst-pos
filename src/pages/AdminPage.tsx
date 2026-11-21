@@ -253,7 +253,7 @@ export default function AdminPage() {
   if (authLoading) {
     return (
       <div className="space-y-6">
-        <div>
+        <div className="glass-surface glass-header-bar glass-section">
           <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
           <p className="text-muted-foreground">Manage users and system settings</p>
         </div>
@@ -276,7 +276,7 @@ export default function AdminPage() {
   if (!profile || profile.role !== 'admin') {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
-        <Card className="max-w-md w-full border-2 border-indigo-500/40 rounded-2xl shadow-lg bg-card">
+        <Card className="max-w-md w-full border-2 border-indigo-500/40 rounded-2xl shadow-lg">
           <CardContent className="flex flex-col items-center justify-center py-10 px-6 text-center space-y-4">
             <div className="p-3 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
               <Shield className="h-10 w-10" />
@@ -324,13 +324,13 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="glass-surface glass-header-bar glass-section">
         <h1 className="text-3xl font-bold tracking-tight">Admin Panel</h1>
         <p className="text-muted-foreground">Manage users and system settings</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-2 border-indigo-500/35 dark:border-indigo-400/35 hover:border-indigo-500 rounded-xl transition-all shadow-xs bg-card">
+        <Card className="glass-stagger-1 border-2 border-indigo-500/35 dark:border-indigo-400/35 hover:border-indigo-500 rounded-xl shadow-xs">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Users</CardTitle>
             <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
@@ -344,7 +344,7 @@ export default function AdminPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-sky-500/35 dark:border-sky-400/35 hover:border-sky-500 rounded-xl transition-all shadow-xs bg-card">
+        <Card className="glass-stagger-2 border-2 border-sky-500/35 dark:border-sky-400/35 hover:border-sky-500 rounded-xl shadow-xs">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Admins</CardTitle>
             <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
@@ -358,7 +358,7 @@ export default function AdminPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-emerald-500/35 dark:border-emerald-400/35 hover:border-emerald-500 rounded-xl transition-all shadow-xs bg-card">
+        <Card className="glass-stagger-3 border-2 border-emerald-500/35 dark:border-emerald-400/35 hover:border-emerald-500 rounded-xl shadow-xs">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Staff</CardTitle>
             <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -451,7 +451,7 @@ export default function AdminPage() {
       </Card>
 
       {/* Database & Storage Management */}
-      <Card className="border-2 border-emerald-500/35 dark:border-emerald-400/35 rounded-xl shadow-xs bg-card">
+      <Card className="glass-stagger-2 border-2 border-emerald-500/35 dark:border-emerald-400/35 rounded-xl shadow-xs">
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -498,7 +498,7 @@ export default function AdminPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div
               onClick={() => handleOpenRawData('products')}
-              className="p-3 border-2 border-emerald-500/20 hover:border-emerald-500/60 rounded-xl bg-card hover:bg-emerald-500/5 transition-all cursor-pointer shadow-2xs text-center"
+              className="glass-surface glass-animated p-3 border-2 border-emerald-500/20 hover:border-emerald-500/60 rounded-xl hover:bg-emerald-500/5 cursor-pointer shadow-2xs text-center"
             >
               <span className="text-xs text-muted-foreground">Products</span>
               <p className="text-lg font-bold text-foreground tabular-nums">
@@ -507,7 +507,7 @@ export default function AdminPage() {
             </div>
             <div
               onClick={() => handleOpenRawData('services')}
-              className="p-3 border-2 border-sky-500/20 hover:border-sky-500/60 rounded-xl bg-card hover:bg-sky-500/5 transition-all cursor-pointer shadow-2xs text-center"
+              className="glass-surface glass-animated p-3 border-2 border-sky-500/20 hover:border-sky-500/60 rounded-xl hover:bg-sky-500/5 cursor-pointer shadow-2xs text-center"
             >
               <span className="text-xs text-muted-foreground">Services</span>
               <p className="text-lg font-bold text-foreground tabular-nums">
@@ -516,7 +516,7 @@ export default function AdminPage() {
             </div>
             <div
               onClick={() => handleOpenRawData('transactions')}
-              className="p-3 border-2 border-sky-500/20 hover:border-sky-500/60 rounded-xl bg-card hover:bg-sky-500/5 transition-all cursor-pointer shadow-2xs text-center"
+              className="glass-surface glass-animated p-3 border-2 border-sky-500/20 hover:border-sky-500/60 rounded-xl hover:bg-sky-500/5 cursor-pointer shadow-2xs text-center"
             >
               <span className="text-xs text-muted-foreground">Transactions</span>
               <p className="text-lg font-bold text-foreground tabular-nums">
@@ -525,7 +525,7 @@ export default function AdminPage() {
             </div>
             <div
               onClick={() => handleOpenRawData('expenses')}
-              className="p-3 border-2 border-rose-500/20 hover:border-rose-500/60 rounded-xl bg-card hover:bg-rose-500/5 transition-all cursor-pointer shadow-2xs text-center"
+              className="glass-surface glass-animated p-3 border-2 border-rose-500/20 hover:border-rose-500/60 rounded-xl hover:bg-rose-500/5 cursor-pointer shadow-2xs text-center"
             >
               <span className="text-xs text-muted-foreground">Expenses</span>
               <p className="text-lg font-bold text-foreground tabular-nums">
@@ -534,14 +534,14 @@ export default function AdminPage() {
             </div>
             <div
               onClick={() => handleOpenRawData('profiles')}
-              className="p-3 border-2 border-indigo-500/20 hover:border-indigo-500/60 rounded-xl bg-card hover:bg-indigo-500/5 transition-all cursor-pointer shadow-2xs text-center"
+              className="glass-surface glass-animated p-3 border-2 border-indigo-500/20 hover:border-indigo-500/60 rounded-xl hover:bg-indigo-500/5 cursor-pointer shadow-2xs text-center"
             >
               <span className="text-xs text-muted-foreground">Users</span>
               <p className="text-lg font-bold text-foreground tabular-nums">
                 {dbStats?.profilesCount ?? 0}
               </p>
             </div>
-            <div className="p-3 border-2 border-slate-300 dark:border-slate-700 rounded-xl bg-card text-center">
+            <div className="glass-surface glass-animated p-3 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-center">
               <span className="text-xs text-muted-foreground">Database Storage</span>
               <p className="text-lg font-bold text-foreground tabular-nums">
                 Cloud + Local

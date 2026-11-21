@@ -6,7 +6,7 @@ export default function NotFound() {
     <>
       <PageMeta title="Page Not Found" description="" />
       <div className="relative flex flex-col items-center justify-center min-h-[75vh] p-6 overflow-hidden">
-        <div className="mx-auto w-full max-w-[242px] text-center sm:max-w-[472px]">
+        <div className="glass-surface glass-section glass-animated rounded-2xl border border-slate-200/80 dark:border-white/15 p-8 mx-auto w-full max-w-[320px] text-center sm:max-w-[472px]">
           <h1 className="mb-6 font-bold text-foreground text-3xl xl:text-4xl">
             404 ERROR
           </h1>
@@ -35,7 +35,7 @@ export default function NotFound() {
 
           <Link
             to="/"
-            className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium text-foreground shadow-xs hover:bg-muted transition-colors"
+            className="inline-flex items-center justify-center rounded-lg border border-border bg-primary/10 px-5 py-3 text-sm font-medium text-foreground shadow-xs hover:bg-primary/20 transition-colors"
           >
             Back to home
           </Link>

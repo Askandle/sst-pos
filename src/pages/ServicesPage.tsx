@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Textarea } from '@/components/ui/textarea';
-import { ShoppingCart, Plus, Minus, PlusCircle, Pencil, Trash2 } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, PlusCircle, Pencil, Trash2, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { useForm } from 'react-hook-form';
@@ -30,6 +30,7 @@ type ServiceFormValues = z.infer<typeof serviceFormSchema>;
 export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -208,7 +209,7 @@ export default function ServicesPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div>
+        <div className="glass-surface glass-header-bar glass-section">
           <h1 className="text-3xl font-bold tracking-tight">Services</h1>
           <p className="text-muted-foreground">Select services for checkout</p>
         </div>
@@ -229,9 +230,19 @@ export default function ServicesPage() {
     );
   }
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredServices = normalizedQuery
+    ? services.filter(
+        (service) =>
+          service.name.toLowerCase().includes(normalizedQuery) ||
+          (service.description || '').toLowerCase().includes(normalizedQuery) ||
+          service.unit.toLowerCase().includes(normalizedQuery)
+      )
+    : services;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="glass-surface glass-header-bar glass-section flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Services</h1>
           <p className="text-muted-foreground">Select services for checkout</p>
@@ -341,9 +352,84 @@ export default function ServicesPage() {
         </div>
       </div>
 
+      {/* Glass Search Bar */}
+      <form
+        onSubmit={(e) => e.preventDefault()}
+        className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
+      >
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search services by name, description, or unit..."
+            className="pl-9 pr-9 h-10 rounded-xl border-2 border-sky-500/30 focus-visible:ring-sky-500"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear service search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="submit"
+            className="h-10 px-4 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Search className="mr-2 h-4 w-4" />
+            Search
+          </Button>
+          {searchQuery && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSearchQuery('')}
+              className="h-10 px-3 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </form>
+
+      {filteredServices.length === 0 ? (
+        <Card className="border-2 border-sky-500/30 rounded-xl shadow-xs">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+            <Search className="h-12 w-12 text-muted-foreground opacity-50" />
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">No matching services found</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                {searchQuery
+                  ? `No services matched "${searchQuery}".`
+                  : 'No services available right now.'}
+              </p>
+            </div>
+            {searchQuery && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSearchQuery('')}
+                className="cursor-pointer"
+              >
+                Clear Search
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {services.map((service) => (
-          <Card key={service.id} className="border-2 border-sky-500/35 dark:border-sky-400/35 hover:border-sky-500 rounded-xl transition-all shadow-xs hover:shadow-md bg-card">
+        {filteredServices.map((service, idx) => (
+          <Card
+            key={service.id}
+            style={{ animationDelay: `${Math.min(idx, 5) * 45}ms` }}
+            className="border-2 border-sky-500/35 dark:border-sky-400/35 hover:border-sky-500 rounded-xl shadow-xs hover:shadow-md"
+          >
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span className="font-semibold text-base">{service.name}</span>
@@ -411,6 +497,7 @@ export default function ServicesPage() {
           </Card>
         ))}
       </div>
+      )}
 
       {/* Edit Service Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={(open) => {
