@@ -14,7 +14,6 @@ import {
   Layers,
   Play,
   Pause,
-  ArrowRight,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -31,7 +30,7 @@ import {
 } from '@/components/ui/table';
 import { format } from 'date-fns';
 
-const HERO_VIDEO_SRC = '/assets/aistudio/lv_7647546797065342229_20260906132057_5252e4e1.mp4';
+const HERO_VIDEO_SRC = '/assets/aistudio/lv_7696810122198437138_20261123181308_259c64b8.mp4';
 const HERO_POSTER_SRC = '/assets/hero-poster.jpg';
 
 interface DailySummaryRow {
@@ -269,16 +268,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Hero Video Banner */}
-      <section className="glass-surface glass-section glass-animated relative rounded-2xl border border-slate-200/80 dark:border-white/15 overflow-hidden shadow-md min-h-[260px] sm:min-h-[300px] lg:min-h-[340px] flex items-end bg-slate-950">
-        {/* Ambient blurred backdrop so portrait video blends seamlessly inside widescreen banner */}
-        <img
-          src={HERO_POSTER_SRC}
-          alt=""
-          aria-hidden="true"
-          referrerPolicy="no-referrer"
-          className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-50 pointer-events-none"
-        />
-
+      <section className="glass-surface glass-section glass-animated relative w-full aspect-video max-h-[420px] rounded-2xl border border-slate-200/80 dark:border-white/15 overflow-hidden shadow-md bg-slate-950">
         {!videoFailed ? (
           <video
             ref={heroVideoRef}
@@ -291,106 +281,52 @@ export default function DashboardPage() {
             onPlay={() => setIsVideoPlaying(true)}
             onPause={() => setIsVideoPlaying(false)}
             onError={() => setVideoFailed(true)}
-            className="absolute inset-0 w-full h-full object-contain brightness-[1.05] contrast-[1.06] saturate-[1.12]"
+            className="w-full h-full object-cover"
           />
         ) : (
           <img
             src={HERO_POSTER_SRC}
             alt="Sanyali School of Technology video banner"
             referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full object-contain"
+            className="w-full h-full object-cover"
           />
         )}
 
-        {/* Measured contrast scrims for crisp >= 4.5:1 text legibility */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/55 to-slate-950/25 pointer-events-none"
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-transparent to-black/20 pointer-events-none"
-        />
-
-        {/* Top-Right Video Controls */}
+        {/* Top-Right Video Controls (icon-only, no overlaid text) */}
         {!videoFailed && (
-          <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          <div className="absolute top-3.5 right-3.5 z-20 flex items-center gap-2">
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={toggleHeroMute}
               aria-label={isVideoMuted ? 'Unmute hero video' : 'Mute hero video'}
-              className="h-9 px-3 rounded-xl bg-slate-950/65 hover:bg-slate-950/85 text-white border border-white/20 backdrop-blur-md cursor-pointer"
+              title={isVideoMuted ? 'Unmute video' : 'Mute video'}
+              className="h-9 w-9 rounded-xl bg-slate-950/60 hover:bg-slate-950/85 text-white border border-white/20 backdrop-blur-md cursor-pointer"
             >
               {isVideoMuted ? (
-                <>
-                  <VolumeX className="h-3.5 w-3.5 mr-1.5" />
-                  <span className="text-xs font-medium">Muted</span>
-                </>
+                <VolumeX className="h-4 w-4" />
               ) : (
-                <>
-                  <Volume2 className="h-3.5 w-3.5 mr-1.5 text-sky-300" />
-                  <span className="text-xs font-medium text-sky-200">Sound</span>
-                </>
+                <Volume2 className="h-4 w-4 text-sky-300" />
               )}
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={toggleHeroVideo}
               aria-label={isVideoPlaying ? 'Pause hero video' : 'Play hero video'}
-              className="h-9 px-3 rounded-xl bg-slate-950/65 hover:bg-slate-950/85 text-white border border-white/20 backdrop-blur-md cursor-pointer"
+              title={isVideoPlaying ? 'Pause video' : 'Play video'}
+              className="h-9 w-9 rounded-xl bg-slate-950/60 hover:bg-slate-950/85 text-white border border-white/20 backdrop-blur-md cursor-pointer"
             >
               {isVideoPlaying ? (
-                <>
-                  <Pause className="h-3.5 w-3.5 mr-1.5" />
-                  <span className="text-xs font-medium">Pause</span>
-                </>
+                <Pause className="h-4 w-4" />
               ) : (
-                <>
-                  <Play className="h-3.5 w-3.5 mr-1.5" />
-                  <span className="text-xs font-medium">Play</span>
-                </>
+                <Play className="h-4 w-4" />
               )}
             </Button>
           </div>
         )}
-
-        {/* Banner Overlay Content */}
-        <div className="relative z-10 w-full p-6 sm:p-8 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-          <div className="max-w-2xl space-y-2.5">
-            <p className="text-xs sm:text-sm font-medium text-sky-300 tracking-wide">
-              Sanyali School of Technology
-              <span aria-hidden="true" className="mx-2 text-white/50">·</span>
-              Point of Sale Terminal
-            </p>
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white [text-wrap:balance]">
-              S.S.T POS Operations Hub
-            </h2>
-            <p className="text-sm sm:text-base text-slate-200 max-w-xl leading-relaxed">
-              Process workstation bookings, retail hardware sales, printable invoices, and daily expense logs in real time across every register.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <Link
-              to="/checkout"
-              className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-sm shadow-sm transition-colors whitespace-nowrap shrink-0"
-            >
-              <ShoppingCart className="h-4 w-4 mr-2" />
-              New Checkout
-              <ArrowRight className="h-4 w-4 ml-1.5" />
-            </Link>
-            <Link
-              to="/products"
-              className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 backdrop-blur-md font-medium text-sm transition-colors whitespace-nowrap shrink-0"
-            >
-              Browse Products
-            </Link>
-          </div>
-        </div>
       </section>
 
       {/* Today's Metrics */}

@@ -1,7 +1,24 @@
+import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
+import { toast } from 'sonner';
 import Navbar from './Navbar';
+import OfflineStatusBanner from '@/components/OfflineStatusBanner';
 
 export default function AppLayout() {
+  useEffect(() => {
+    const handleSyncCompleted = (e: Event) => {
+      const detail = (e as CustomEvent<{ synced?: number; failed?: number }>).detail;
+      if (detail && detail.synced && detail.synced > 0) {
+        toast.success(
+          `Back online: synced ${detail.synced} offline ${detail.synced === 1 ? 'change' : 'changes'} to cloud.`
+        );
+      }
+    };
+
+    window.addEventListener('offline-sync-completed', handleSyncCompleted);
+    return () => window.removeEventListener('offline-sync-completed', handleSyncCompleted);
+  }, []);
+
   return (
     <div className="relative min-h-screen flex flex-col lg:flex-row bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary overflow-x-hidden">
       {/* Subtle drifting ambient backdrop for frosted glass refraction */}
@@ -13,6 +30,7 @@ export default function AppLayout() {
 
       <Navbar />
       <main className="relative z-10 flex-1 min-w-0 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        <OfflineStatusBanner />
         <Outlet />
       </main>
     </div>

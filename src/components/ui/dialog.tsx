@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface DialogContextType {
@@ -49,14 +50,18 @@ export function DialogTrigger({
   const ctx = React.useContext(DialogContext);
 
   const handleClick = (e: React.MouseEvent) => {
+    if (asChild && React.isValidElement(children)) {
+      const childOnClick = (children.props as { onClick?: React.MouseEventHandler })?.onClick;
+      childOnClick?.(e);
+    }
     onClick?.(e);
     ctx?.onOpenChange(true);
   };
 
   if (asChild && React.isValidElement(children)) {
     return React.cloneElement(children as React.ReactElement<any>, {
-      onClick: handleClick,
       ...props,
+      onClick: handleClick,
     });
   }
 
@@ -75,40 +80,50 @@ export function DialogContent({
   const ctx = React.useContext(DialogContext);
 
   React.useEffect(() => {
+    if (!ctx?.open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && ctx?.open) {
+      if (e.key === 'Escape') {
         ctx.onOpenChange(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [ctx?.open]);
+  }, [ctx?.open, ctx]);
 
-  if (!ctx?.open) return null;
+  if (!ctx?.open || typeof document === 'undefined') return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+    >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-slate-950/55 backdrop-blur-xs transition-opacity"
         onClick={() => ctx.onOpenChange(false)}
       />
       {/* Dialog box */}
       <div
-        className={`relative z-50 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl transition-all duration-200 ${className}`}
+        className={`relative z-10 my-auto w-full max-w-lg rounded-2xl border border-border bg-card shadow-2xl transition-all duration-200 ${
+          className.includes('p-0') ? '' : 'p-6'
+        } ${className}`}
+        onClick={(e) => e.stopPropagation()}
         {...props}
       >
         <button
           type="button"
           onClick={() => ctx.onOpenChange(false)}
-          className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity p-1"
+          aria-label="Close dialog"
+          className="absolute right-4 top-4 z-20 rounded-lg opacity-75 hover:opacity-100 hover:bg-muted/60 transition-all p-1.5 cursor-pointer"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </button>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

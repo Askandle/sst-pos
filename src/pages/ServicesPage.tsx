@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Textarea } from '@/components/ui/textarea';
@@ -134,6 +134,16 @@ export default function ServicesPage() {
     }
   };
 
+  const openCreateServiceDialog = () => {
+    form.reset({
+      name: '',
+      description: '',
+      base_price: 0,
+      unit: '',
+    });
+    setDialogOpen(true);
+  };
+
   const handleEdit = (service: Service) => {
     setEditingService(service);
     editForm.reset({
@@ -249,103 +259,12 @@ export default function ServicesPage() {
         </div>
         <div className="flex gap-2">
           {profile?.role === 'admin' && (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="lg">
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Add Service
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle>Add New Service</DialogTitle>
-                  <DialogDescription>
-                    Create a new service that can be offered to customers.
-                  </DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="name"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Service Name</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g., Computer Station Hourly, Gaming Rig" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="description"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Description</FormLabel>
-                          <FormControl>
-                            <Textarea 
-                              placeholder="Optional description of the service"
-                              className="resize-none"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Provide additional details about this service
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="base_price"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Base Price (GH₵)</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="number" 
-                                step="0.01"
-                                min="0"
-                                placeholder="0.00"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="unit"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Unit</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g., per hour, per page" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={submitting}>
-                        {submitting ? 'Creating...' : 'Create Service'}
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
+            <Button variant="outline" size="lg" onClick={openCreateServiceDialog} className="cursor-pointer">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Service
+            </Button>
           )}
-          <Button onClick={addToCart} size="lg">
+          <Button onClick={addToCart} size="lg" className="cursor-pointer">
             <ShoppingCart className="mr-2 h-4 w-4" />
             Add to Cart
           </Button>
@@ -499,6 +418,106 @@ export default function ServicesPage() {
       </div>
       )}
 
+      {/* Add Service Popup Window */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) form.reset();
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] p-0 flex flex-col glass-surface border-2 border-sky-500/35 dark:border-sky-400/30 rounded-2xl shadow-2xl">
+          <DialogHeader className="px-6 pt-6 pb-4 mb-0 border-b border-border/60 shrink-0">
+            <DialogTitle>Add New Service</DialogTitle>
+            <DialogDescription>
+              Create a new service that can be offered to customers.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth px-6 py-4 space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., Computer Station Hourly, Gaming Rig" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Optional description of the service"
+                          className="resize-none"
+                          rows={3}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Provide additional details about this service
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="base_price"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Base Price (GH₵)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="unit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Unit</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., per hour, per page" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+              <DialogFooter className="px-6 py-4 pt-4 border-t border-border/60 shrink-0 bg-card/40">
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="cursor-pointer">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={submitting} className="cursor-pointer">
+                  {submitting ? 'Creating...' : 'Create Service'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Service Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={(open) => {
         setEditDialogOpen(open);
@@ -507,87 +526,90 @@ export default function ServicesPage() {
           editForm.reset();
         }
       }}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] p-0 flex flex-col glass-surface border-2 border-sky-500/35 dark:border-sky-400/30 rounded-2xl shadow-2xl">
+          <DialogHeader className="px-6 pt-6 pb-4 mb-0 border-b border-border/60 shrink-0">
             <DialogTitle>Edit Service</DialogTitle>
             <DialogDescription>
               Update the service details below.
             </DialogDescription>
           </DialogHeader>
           <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
-              <FormField
-                control={editForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Service Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Computer Station Hourly" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="Optional description of the service"
-                        className="resize-none"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Provide additional details about this service
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth px-6 py-4 space-y-4">
                 <FormField
                   control={editForm.control}
-                  name="base_price"
+                  name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Base Price (GH₵)</FormLabel>
+                      <FormLabel>Service Name</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step="0.01"
-                          min="0"
-                          placeholder="0.00"
+                        <Input placeholder="e.g., Computer Station Hourly" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Optional description of the service"
+                          className="resize-none"
+                          rows={3}
                           {...field}
                         />
                       </FormControl>
+                      <FormDescription>
+                        Provide additional details about this service
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={editForm.control}
-                  name="unit"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Unit</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., per hour, per page" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={editForm.control}
+                    name="base_price"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Base Price (GH₵)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={editForm.control}
+                    name="unit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Unit</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., per hour, per page" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+              <DialogFooter className="px-6 py-4 pt-4 border-t border-border/60 shrink-0 bg-card/40">
+                <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)} className="cursor-pointer">
                   Cancel
                 </Button>
-                <Button type="submit" disabled={submitting}>
+                <Button type="submit" disabled={submitting} className="cursor-pointer">
                   {submitting ? 'Updating...' : 'Update Service'}
                 </Button>
               </DialogFooter>

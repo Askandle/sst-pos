@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 
 interface AlertDialogContextType {
   open: boolean;
@@ -48,14 +49,18 @@ export function AlertDialogTrigger({
   const ctx = React.useContext(AlertDialogContext);
 
   const handleClick = (e: React.MouseEvent) => {
+    if (asChild && React.isValidElement(children)) {
+      const childOnClick = (children.props as { onClick?: React.MouseEventHandler })?.onClick;
+      childOnClick?.(e);
+    }
     onClick?.(e);
     ctx?.onOpenChange(true);
   };
 
   if (asChild && React.isValidElement(children)) {
     return React.cloneElement(children as React.ReactElement<any>, {
-      onClick: handleClick,
       ...props,
+      onClick: handleClick,
     });
   }
 
@@ -73,21 +78,38 @@ export function AlertDialogContent({
 }: React.HTMLAttributes<HTMLDivElement>) {
   const ctx = React.useContext(AlertDialogContext);
 
-  if (!ctx?.open) return null;
+  React.useEffect(() => {
+    if (!ctx?.open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        ctx.onOpenChange(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [ctx?.open, ctx]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  if (!ctx?.open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+    >
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs"
+        className="fixed inset-0 bg-slate-950/55 backdrop-blur-xs"
         onClick={() => ctx.onOpenChange(false)}
       />
       <div
-        className={`relative z-50 w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl ${className}`}
+        className={`relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl ${className}`}
+        onClick={(e) => e.stopPropagation()}
         {...props}
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

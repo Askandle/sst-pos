@@ -13,6 +13,7 @@ import {
   handleFirestoreError,
   OperationType,
   testFirestoreConnection,
+  setFirestoreNetworkEnabled,
 } from '@/lib/firebase';
 import {
   collection,
@@ -32,9 +33,12 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'netpos_transactions',
   DELETED_IDS: 'netpos_deleted_ids',
   PENDING_WRITES: 'netpos_pending_writes',
+  SYNC_QUEUE: 'netpos_pending_sync_ops',
   INITIALIZED: 'netpos_initialized',
   FIRESTORE_SYNCED: 'netpos_firestore_synced',
 };
+
+const MANUAL_OFFLINE_KEY = 'sst_manual_offline_mode';
 
 // Seed initial internet cafe data
 const INITIAL_PROFILES: Profile[] = [
@@ -361,19 +365,252 @@ function notifyDataUpdate(eventName: string): void {
   } catch {}
 }
 
+// --- Offline Mode & Sync Queue ---
+type SyncCollection = 'profiles' | 'products' | 'services' | 'expenses' | 'transactions';
+
+interface PendingSyncOp {
+  key: string;
+  collection: SyncCollection;
+  id: string;
+  type: 'upsert' | 'delete';
+  data?: Record<string, any>;
+  merge?: boolean;
+  timestamp: number;
+}
+
+export function isNetworkOnline(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  return navigator.onLine;
+}
+
+export function getManualOfflineMode(): boolean {
+  try {
+    return localStorage.getItem(MANUAL_OFFLINE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function isOfflineModeActive(): boolean {
+  return !isNetworkOnline() || getManualOfflineMode();
+}
+
+function getSyncQueue(): PendingSyncOp[] {
+  const queue = getItem<PendingSyncOp[]>(STORAGE_KEYS.SYNC_QUEUE, []);
+  return Array.isArray(queue) ? queue : [];
+}
+
+function saveSyncQueue(queue: PendingSyncOp[]): void {
+  setItem(STORAGE_KEYS.SYNC_QUEUE, queue);
+  try {
+    window.dispatchEvent(new Event('pending-sync-updated'));
+  } catch {}
+}
+
+export function getPendingSyncCount(): number {
+  return getSyncQueue().length;
+}
+
+function enqueueSyncOp(op: Omit<PendingSyncOp, 'key' | 'timestamp'>): void {
+  const key = `${op.collection}:${op.id}`;
+  const queue = getSyncQueue();
+  const idx = queue.findIndex((item) => item.key === key);
+  const now = Date.now();
+
+  if (idx !== -1) {
+    const existing = queue[idx];
+    if (op.type === 'upsert' && existing.type === 'upsert' && op.merge && existing.data) {
+      queue[idx] = {
+        ...existing,
+        data: { ...existing.data, ...op.data },
+        merge: existing.merge ?? op.merge,
+        timestamp: now,
+      };
+    } else {
+      queue[idx] = { ...op, key, timestamp: now };
+    }
+  } else {
+    queue.push({ ...op, key, timestamp: now });
+  }
+
+  saveSyncQueue(queue);
+}
+
+function removeSyncOp(collectionName: SyncCollection, id: string): void {
+  const key = `${collectionName}:${id}`;
+  const queue = getSyncQueue();
+  const filtered = queue.filter((item) => item.key !== key);
+  if (filtered.length !== queue.length) {
+    saveSyncQueue(filtered);
+  }
+}
+
+function findLocalItemById(collectionName: SyncCollection, id: string): Record<string, any> | undefined {
+  const storageMap: Record<SyncCollection, string> = {
+    profiles: STORAGE_KEYS.PROFILES,
+    products: STORAGE_KEYS.PRODUCTS,
+    services: STORAGE_KEYS.SERVICES,
+    expenses: STORAGE_KEYS.EXPENSES,
+    transactions: STORAGE_KEYS.TRANSACTIONS,
+  };
+  const items = getItem<Array<{ id: string }>>(storageMap[collectionName], []);
+  return items.find((item) => item.id === id);
+}
+
 // Track last background sync timestamp per collection to avoid redundant cloud fetches
 const lastSyncTime: Record<string, number> = {};
 const inflightSync: Record<string, boolean> = {};
-const SYNC_COOLDOWN_MS = 5000;
+const realtimeSyncedCollections: Record<string, boolean> = {};
+const SYNC_COOLDOWN_MS = 10000;
 
-async function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), ms)),
-  ]);
+async function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T> {
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timerId = setTimeout(() => reject(new Error('Firestore timeout')), ms);
+      }),
+    ]);
+  } finally {
+    if (timerId !== undefined) clearTimeout(timerId);
+  }
+}
+
+function syncDocToCloud(
+  collectionName: SyncCollection,
+  id: string,
+  data: Record<string, any>,
+  merge = false
+): void {
+  if (isOfflineModeActive()) {
+    enqueueSyncOp({ collection: collectionName, id, type: 'upsert', data, merge });
+    return;
+  }
+
+  withTimeout(setDoc(doc(db, collectionName, id), data, merge ? { merge: true } : {}), 12000)
+    .then(() => {
+      clearPendingWrite(id);
+      removeSyncOp(collectionName, id);
+    })
+    .catch((err) => {
+      enqueueSyncOp({ collection: collectionName, id, type: 'upsert', data, merge });
+      console.warn(`Firestore ${collectionName} sync notice (queued for retry):`, err);
+    });
+}
+
+function deleteDocFromCloud(collectionName: SyncCollection, id: string): void {
+  if (isOfflineModeActive()) {
+    enqueueSyncOp({ collection: collectionName, id, type: 'delete' });
+    return;
+  }
+
+  withTimeout(deleteDoc(doc(db, collectionName, id)), 12000)
+    .then(() => {
+      clearDeletedId(id);
+      removeSyncOp(collectionName, id);
+    })
+    .catch((err) => {
+      enqueueSyncOp({ collection: collectionName, id, type: 'delete' });
+      reportFirestoreNotice(err, OperationType.DELETE, `${collectionName}/${id}`);
+    });
+}
+
+let isFlushingOfflineSync = false;
+
+export async function flushPendingOfflineSync(): Promise<{ synced: number; failed: number }> {
+  if (isFlushingOfflineSync) {
+    return { synced: 0, failed: getPendingSyncCount() };
+  }
+  if (isOfflineModeActive()) {
+    return { synced: 0, failed: getPendingSyncCount() };
+  }
+
+  const queue = getSyncQueue().sort((a, b) => a.timestamp - b.timestamp);
+  if (queue.length === 0) {
+    return { synced: 0, failed: 0 };
+  }
+
+  isFlushingOfflineSync = true;
+  let synced = 0;
+  let failed = 0;
+  const remaining: PendingSyncOp[] = [];
+
+  try {
+    for (const op of queue) {
+      try {
+        if (op.type === 'delete') {
+          await withTimeout(deleteDoc(doc(db, op.collection, op.id)), 12000);
+          clearDeletedId(op.id);
+        } else {
+          const payload = op.data ?? findLocalItemById(op.collection, op.id);
+          if (payload) {
+            await withTimeout(
+              setDoc(doc(db, op.collection, op.id), payload, op.merge ? { merge: true } : {}),
+              12000
+            );
+          }
+          clearPendingWrite(op.id);
+        }
+        synced++;
+      } catch (err) {
+        console.warn(`Offline queue sync retry needed for ${op.key}:`, err);
+        remaining.push(op);
+        failed++;
+      }
+    }
+
+    saveSyncQueue(remaining);
+
+    if (synced > 0) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('offline-sync-completed', { detail: { synced, failed } })
+        );
+      } catch {}
+    }
+  } finally {
+    isFlushingOfflineSync = false;
+  }
+
+  return { synced, failed };
+}
+
+export async function setManualOfflineMode(enabled: boolean): Promise<void> {
+  try {
+    localStorage.setItem(MANUAL_OFFLINE_KEY, enabled ? 'true' : 'false');
+  } catch {}
+
+  try {
+    window.dispatchEvent(new Event('offline-mode-changed'));
+  } catch {}
+
+  if (enabled || !isNetworkOnline()) {
+    await setFirestoreNetworkEnabled(false);
+    return;
+  }
+
+  await setFirestoreNetworkEnabled(true);
+  await initializeFirestoreSync();
+  await flushPendingOfflineSync();
+}
+
+function isTransientFirestoreError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string } | null)?.code;
+  return (
+    msg.includes('Firestore timeout') ||
+    msg.includes('client is offline') ||
+    code === 'unavailable' ||
+    code === 'deadline-exceeded'
+  );
 }
 
 function reportFirestoreNotice(err: unknown, operation: OperationType, path: string): void {
+  if (isTransientFirestoreError(err)) {
+    console.warn(`Firestore ${operation} offline/slow notice (${path}):`, err instanceof Error ? err.message : err);
+    return;
+  }
   try {
     handleFirestoreError(err, operation, path);
   } catch (structuredErr) {
@@ -403,13 +640,18 @@ function syncCollectionInBackground<T extends { id: string }>(
   eventName: string,
   sortFn?: (a: T, b: T) => number
 ): void {
+  if (isOfflineModeActive()) return;
+
+  // When an active onSnapshot listener has already synced this collection, skip redundant getDocs polling
+  if (realtimeStarted && realtimeSyncedCollections[collectionName]) return;
+
   const now = Date.now();
   if (inflightSync[collectionName]) return;
   if (lastSyncTime[collectionName] && now - lastSyncTime[collectionName] < SYNC_COOLDOWN_MS) return;
 
   inflightSync[collectionName] = true;
 
-  withTimeout(getDocs(collection(db, collectionName)), 5000)
+  withTimeout(getDocs(collection(db, collectionName)), 15000)
     .then((snapshot) => {
       // Only skip empty remote snapshot if Firestore hasn't been confirmed seeded yet
       if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) return;
@@ -442,6 +684,8 @@ function subscribeCollectionRealtime<T extends { id: string }>(
       if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
         return;
       }
+      realtimeSyncedCollections[collectionName] = true;
+      lastSyncTime[collectionName] = Date.now();
       localStorage.setItem(STORAGE_KEYS.FIRESTORE_SYNCED, 'true');
       const remoteItems: T[] = [];
       snapshot.forEach((d) => remoteItems.push(d.data() as T));
@@ -489,9 +733,14 @@ initializeLocalStorage();
 
 // Validate Firestore connection on startup, seed only if database is completely empty, and attach live listeners
 async function initializeFirestoreSync() {
+  if (isOfflineModeActive()) {
+    await setFirestoreNetworkEnabled(false);
+    return;
+  }
+
   try {
     // Run initial connection check in parallel so listeners attach immediately
-    const connPromise = withTimeout(testFirestoreConnection(), 5000);
+    const connPromise = withTimeout(testFirestoreConnection(), 15000);
 
     if (!localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
       const isOnline = await connPromise;
@@ -502,7 +751,7 @@ async function initializeFirestoreSync() {
             getDocs(collection(db, 'profiles')),
             getDocs(collection(db, 'services')),
           ]),
-          5000
+          15000
         );
 
         if (productsSnap.empty && profilesSnap.empty && servicesSnap.empty) {
@@ -535,10 +784,35 @@ async function initializeFirestoreSync() {
 
     // Start live real-time Firestore subscriptions across all devices
     startRealtimeListeners();
+    await flushPendingOfflineSync();
   } catch (err) {
     reportFirestoreNotice(err, OperationType.GET, 'test/connection');
-    startRealtimeListeners();
+    if (!isOfflineModeActive()) {
+      startRealtimeListeners();
+    }
   }
+}
+
+// Listen for browser online/offline transitions
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => {
+    setFirestoreNetworkEnabled(false);
+    try {
+      window.dispatchEvent(new Event('offline-mode-changed'));
+    } catch {}
+  });
+
+  window.addEventListener('online', async () => {
+    try {
+      window.dispatchEvent(new Event('offline-mode-changed'));
+    } catch {}
+
+    if (!getManualOfflineMode()) {
+      await setFirestoreNetworkEnabled(true);
+      await initializeFirestoreSync();
+      await flushPendingOfflineSync();
+    }
+  });
 }
 
 // Trigger startup connection check & live real-time sync
@@ -553,8 +827,9 @@ export async function getAllProfiles(): Promise<Profile[]> {
 
 export async function fetchProfilesFromCloud(): Promise<Profile[]> {
   const local = getItem<Profile[]>(STORAGE_KEYS.PROFILES, INITIAL_PROFILES);
+  if (isOfflineModeActive()) return local;
   try {
-    const snapshot = await withTimeout(getDocs(collection(db, 'profiles')), 4000);
+    const snapshot = await withTimeout(getDocs(collection(db, 'profiles')), 15000);
     if (snapshot.empty && !localStorage.getItem(STORAGE_KEYS.FIRESTORE_SYNCED)) {
       return local;
     }
@@ -580,9 +855,7 @@ export async function createProfile(newProfile: Profile): Promise<Profile> {
   setItem(STORAGE_KEYS.PROFILES, updated);
   notifyDataUpdate('profiles-updated');
 
-  setDoc(doc(db, 'profiles', newProfile.id), newProfile)
-    .then(() => clearPendingWrite(newProfile.id))
-    .catch((err) => console.warn('Firestore profile creation notice:', err));
+  syncDocToCloud('profiles', newProfile.id, newProfile);
 
   return newProfile;
 }
@@ -594,9 +867,7 @@ export async function updateProfileRole(userId: string, newRole: 'staff' | 'admi
   setItem(STORAGE_KEYS.PROFILES, updated);
   notifyDataUpdate('profiles-updated');
 
-  setDoc(doc(db, 'profiles', userId), { role: newRole }, { merge: true })
-    .then(() => clearPendingWrite(userId))
-    .catch((err) => console.warn('Firestore profile update notice:', err));
+  syncDocToCloud('profiles', userId, { role: newRole }, true);
 }
 
 export async function updateProfilePasswordHash(userId: string, passwordHash: string): Promise<void> {
@@ -605,9 +876,7 @@ export async function updateProfilePasswordHash(userId: string, passwordHash: st
   const updated = profiles.map((p) => (p.id === userId ? { ...p, password_hash: passwordHash } : p));
   setItem(STORAGE_KEYS.PROFILES, updated);
 
-  setDoc(doc(db, 'profiles', userId), { password_hash: passwordHash }, { merge: true })
-    .then(() => clearPendingWrite(userId))
-    .catch((err) => console.warn('Firestore profile credential sync notice:', err));
+  syncDocToCloud('profiles', userId, { password_hash: passwordHash }, true);
 }
 
 export async function deleteProfile(userId: string): Promise<void> {
@@ -632,9 +901,7 @@ export async function deleteProfile(userId: string): Promise<void> {
 
   notifyDataUpdate('profiles-updated');
 
-  deleteDoc(doc(db, 'profiles', userId))
-    .then(() => clearDeletedId(userId))
-    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `profiles/${userId}`));
+  deleteDocFromCloud('profiles', userId);
 }
 
 // --- Dashboard Stats ---
@@ -723,9 +990,7 @@ export async function createProduct(data: {
   setItem(STORAGE_KEYS.PRODUCTS, products);
   notifyDataUpdate('products-updated');
 
-  setDoc(doc(db, 'products', newProduct.id), newProduct)
-    .then(() => clearPendingWrite(newProduct.id))
-    .catch((err) => console.warn('Firestore product creation notice:', err));
+  syncDocToCloud('products', newProduct.id, newProduct);
 
   return newProduct;
 }
@@ -751,9 +1016,7 @@ export async function updateProduct(
   setItem(STORAGE_KEYS.PRODUCTS, products);
   notifyDataUpdate('products-updated');
 
-  setDoc(doc(db, 'products', id), cleanUpdates, { merge: true })
-    .then(() => clearPendingWrite(id))
-    .catch((err) => console.warn('Firestore product update notice:', err));
+  syncDocToCloud('products', id, cleanUpdates, true);
 
   return updated;
 }
@@ -765,9 +1028,7 @@ export async function deleteProduct(id: string): Promise<void> {
   setItem(STORAGE_KEYS.PRODUCTS, filtered);
   notifyDataUpdate('products-updated');
 
-  deleteDoc(doc(db, 'products', id))
-    .then(() => clearDeletedId(id))
-    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `products/${id}`));
+  deleteDocFromCloud('products', id);
 }
 
 // --- Services ---
@@ -798,9 +1059,7 @@ export async function createService(data: {
   setItem(STORAGE_KEYS.SERVICES, services);
   notifyDataUpdate('services-updated');
 
-  setDoc(doc(db, 'services', newService.id), newService)
-    .then(() => clearPendingWrite(newService.id))
-    .catch((err) => console.warn('Firestore service creation notice:', err));
+  syncDocToCloud('services', newService.id, newService);
 
   return newService;
 }
@@ -825,9 +1084,7 @@ export async function updateService(
   setItem(STORAGE_KEYS.SERVICES, services);
   notifyDataUpdate('services-updated');
 
-  setDoc(doc(db, 'services', id), cleanUpdates, { merge: true })
-    .then(() => clearPendingWrite(id))
-    .catch((err) => console.warn('Firestore service update notice:', err));
+  syncDocToCloud('services', id, cleanUpdates, true);
 
   return updated;
 }
@@ -839,9 +1096,7 @@ export async function deleteService(id: string): Promise<void> {
   setItem(STORAGE_KEYS.SERVICES, filtered);
   notifyDataUpdate('services-updated');
 
-  deleteDoc(doc(db, 'services', id))
-    .then(() => clearDeletedId(id))
-    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `services/${id}`));
+  deleteDocFromCloud('services', id);
 }
 
 // --- Expenses ---
@@ -890,9 +1145,7 @@ export async function createExpense(
   setItem(STORAGE_KEYS.EXPENSES, expenses);
   notifyDataUpdate('expenses-updated');
 
-  setDoc(doc(db, 'expenses', newExpense.id), newExpense)
-    .then(() => clearPendingWrite(newExpense.id))
-    .catch((err) => console.warn('Firestore expense creation notice:', err));
+  syncDocToCloud('expenses', newExpense.id, newExpense);
 
   return newExpense;
 }
@@ -904,9 +1157,7 @@ export async function deleteExpense(id: string): Promise<void> {
   setItem(STORAGE_KEYS.EXPENSES, filtered);
   notifyDataUpdate('expenses-updated');
 
-  deleteDoc(doc(db, 'expenses', id))
-    .then(() => clearDeletedId(id))
-    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `expenses/${id}`));
+  deleteDocFromCloud('expenses', id);
 }
 
 // --- Transactions ---
@@ -931,9 +1182,7 @@ export async function deleteTransaction(id: string): Promise<void> {
   setItem(STORAGE_KEYS.TRANSACTIONS, filtered);
   notifyDataUpdate('transactions-updated');
 
-  deleteDoc(doc(db, 'transactions', id))
-    .then(() => clearDeletedId(id))
-    .catch((err) => reportFirestoreNotice(err, OperationType.DELETE, `transactions/${id}`));
+  deleteDocFromCloud('transactions', id);
 }
 
 export async function createTransaction(
@@ -970,9 +1219,7 @@ export async function createTransaction(
           stock_quantity: newStock,
         };
         markPendingWrite(item.item_id);
-        setDoc(doc(db, 'products', item.item_id), { stock_quantity: newStock }, { merge: true })
-          .then(() => clearPendingWrite(item.item_id))
-          .catch(console.warn);
+        syncDocToCloud('products', item.item_id, { stock_quantity: newStock }, true);
       }
     }
   }
@@ -1020,12 +1267,8 @@ export async function createTransaction(
   notifyDataUpdate('transactions-updated');
   notifyDataUpdate('products-updated');
 
-  // Sync to Firestore non-blockingly so POS checkout is instant and never crashes
-  setDoc(doc(db, 'transactions', newTxn.id), newTxn)
-    .then(() => clearPendingWrite(newTxn.id))
-    .catch((err) => {
-      console.warn('Firestore transaction cloud sync notice:', err);
-    });
+  // Sync to Firestore non-blockingly (or queue if offline) so POS checkout is instant and never crashes
+  syncDocToCloud('transactions', newTxn.id, newTxn);
 
   return newTxn;
 }
@@ -1088,6 +1331,25 @@ async function syncCollectionsToCloud(collections: {
   expenses?: Expense[];
   transactions?: TransactionWithItems[];
 }): Promise<void> {
+  if (isOfflineModeActive()) {
+    for (const p of collections.profiles || []) {
+      if (p?.id) enqueueSyncOp({ collection: 'profiles', id: p.id, type: 'upsert', data: p });
+    }
+    for (const pr of collections.products || []) {
+      if (pr?.id) enqueueSyncOp({ collection: 'products', id: pr.id, type: 'upsert', data: pr });
+    }
+    for (const s of collections.services || []) {
+      if (s?.id) enqueueSyncOp({ collection: 'services', id: s.id, type: 'upsert', data: s });
+    }
+    for (const e of collections.expenses || []) {
+      if (e?.id) enqueueSyncOp({ collection: 'expenses', id: e.id, type: 'upsert', data: e });
+    }
+    for (const t of collections.transactions || []) {
+      if (t?.id) enqueueSyncOp({ collection: 'transactions', id: t.id, type: 'upsert', data: t });
+    }
+    return;
+  }
+
   try {
     const batch = writeBatch(db);
     for (const p of collections.profiles || []) {
@@ -1121,6 +1383,7 @@ export function importDatabaseBackup(jsonString: string): { success: boolean; me
 
     setItem(STORAGE_KEYS.DELETED_IDS, []);
     setItem(STORAGE_KEYS.PENDING_WRITES, []);
+    saveSyncQueue([]);
 
     if (Array.isArray(profiles)) {
       setItem(STORAGE_KEYS.PROFILES, profiles);
@@ -1145,7 +1408,12 @@ export function importDatabaseBackup(jsonString: string): { success: boolean; me
 
     syncCollectionsToCloud({ profiles, products, services, expenses, transactions });
 
-    return { success: true, message: 'Database restored and synced to cloud' };
+    return {
+      success: true,
+      message: isOfflineModeActive()
+        ? 'Database restored locally (queued for cloud sync when online)'
+        : 'Database restored and synced to cloud',
+    };
   } catch (err: any) {
     return { success: false, message: err.message || 'Failed to parse JSON backup file' };
   }
@@ -1155,6 +1423,9 @@ export function resetDatabase(): void {
   for (const key of Object.values(STORAGE_KEYS)) {
     localStorage.removeItem(key);
   }
+  try {
+    window.dispatchEvent(new Event('pending-sync-updated'));
+  } catch {}
   initializeLocalStorage();
   notifyDataUpdate('profiles-updated');
   notifyDataUpdate('products-updated');

@@ -18,7 +18,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -318,133 +317,12 @@ export default function ProductsPage() {
         </div>
         <div className="flex gap-2">
           {isAdmin && (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={openCreateDialog}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Product
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-                  <DialogDescription>
-                    {editingProduct ? 'Update product information' : 'Create a new product'}
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="product-image">Product Image</Label>
-                    <div className="flex items-center gap-4">
-                      {imagePreview ? (
-                        <div className="relative w-32 h-32 aspect-square border border-border rounded-lg overflow-hidden bg-muted/40 p-1 flex items-center justify-center">
-                          <img
-                            src={imagePreview}
-                            alt="Preview"
-                            className="w-full h-full object-contain"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-32 h-32 border border-border rounded-lg flex items-center justify-center bg-muted">
-                          <ImageIcon className="h-12 w-12 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <Input
-                          id="product-image"
-                          type="file"
-                          accept="image/jpeg,image/png,image/gif,image/webp,image/avif"
-                          onChange={handleImageSelect}
-                          className="cursor-pointer"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Max 1MB. Larger images will be compressed automatically.
-                        </p>
-                      </div>
-                    </div>
-                    {uploadProgress > 0 && uploadProgress < 100 && (
-                      <Progress value={uploadProgress} className="w-full" />
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2 col-span-2">
-                      <Label htmlFor="name">Product Name *</Label>
-                      <Input
-                        id="name"
-                        value={formName}
-                        onChange={(e) => setFormName(e.target.value)}
-                        placeholder="e.g., Wireless Mouse"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-2 col-span-2">
-                      <Label htmlFor="description">Description</Label>
-                      <Textarea
-                        id="description"
-                        value={formDescription}
-                        onChange={(e) => setFormDescription(e.target.value)}
-                        placeholder="Product description..."
-                        rows={3}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="price">Price (GH₵) *</Label>
-                      <Input
-                        id="price"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formPrice}
-                        onChange={(e) => setFormPrice(e.target.value)}
-                        placeholder="0.00"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="stock">Stock Quantity *</Label>
-                      <Input
-                        id="stock"
-                        type="number"
-                        min="0"
-                        value={formStock}
-                        onChange={(e) => setFormStock(e.target.value)}
-                        placeholder="0"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-2 col-span-2">
-                      <Label htmlFor="category">Category *</Label>
-                      <Input
-                        id="category"
-                        value={formCategory}
-                        onChange={(e) => setFormCategory(e.target.value)}
-                        placeholder="e.g., accessories, storage, cables"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 justify-end">
-                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={isSubmitting}>
-                      {isSubmitting ? 'Saving...' : editingProduct ? 'Update Product' : 'Create Product'}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button onClick={openCreateDialog} size="lg" className="cursor-pointer">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Product
+            </Button>
           )}
-          <Button onClick={addToCart} size="lg" variant="default">
+          <Button onClick={addToCart} size="lg" variant="default" className="cursor-pointer">
             <ShoppingCart className="mr-2 h-4 w-4" />
             Add to Cart
           </Button>
@@ -644,6 +522,137 @@ export default function ProductsPage() {
           </div>
         </div>
       ))}
+
+      {/* Add / Edit Product Popup Window */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setEditingProduct(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] p-0 flex flex-col glass-surface border-2 border-emerald-500/35 dark:border-emerald-400/30 rounded-2xl shadow-2xl">
+          <DialogHeader className="px-6 pt-6 pb-4 mb-0 border-b border-border/60 shrink-0">
+            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+            <DialogDescription>
+              {editingProduct ? 'Update product details below.' : 'Enter details to create a new product.'}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth px-6 py-4 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="product-image">Product Image</Label>
+                <div className="flex items-center gap-4">
+                  {imagePreview ? (
+                    <div className="relative w-32 h-32 aspect-square border border-border rounded-lg overflow-hidden bg-muted/40 p-1 flex items-center justify-center shrink-0">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-32 h-32 border border-border rounded-lg flex items-center justify-center bg-muted shrink-0">
+                      <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <Input
+                      id="product-image"
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp,image/avif"
+                      onChange={handleImageSelect}
+                      className="cursor-pointer"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Max 1MB. Larger images will be compressed automatically.
+                    </p>
+                  </div>
+                </div>
+                {uploadProgress > 0 && uploadProgress < 100 && (
+                  <Progress value={uploadProgress} className="w-full" />
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2 col-span-2">
+                  <Label htmlFor="name">Product Name *</Label>
+                  <Input
+                    id="name"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="e.g., Wireless Mouse"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2 col-span-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="Product description..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="price">Price (GH₵) *</Label>
+                  <Input
+                    id="price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formPrice}
+                    onChange={(e) => setFormPrice(e.target.value)}
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="stock">Stock Quantity *</Label>
+                  <Input
+                    id="stock"
+                    type="number"
+                    min="0"
+                    value={formStock}
+                    onChange={(e) => setFormStock(e.target.value)}
+                    placeholder="0"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2 col-span-2">
+                  <Label htmlFor="category">Category *</Label>
+                  <Input
+                    id="category"
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                    placeholder="e.g., accessories, storage, cables"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-border/60 shrink-0 flex gap-2 justify-end bg-card/40">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="cursor-pointer">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting} className="cursor-pointer">
+                {isSubmitting ? 'Saving...' : editingProduct ? 'Update Product' : 'Create Product'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

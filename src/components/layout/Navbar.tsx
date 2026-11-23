@@ -17,10 +17,15 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import SearchItemsDialog from '@/components/SearchItemsDialog';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
+import { useOfflineMode } from '@/hooks/useOfflineMode';
+import { toast } from 'sonner';
 
 export default function Navbar() {
   const { user, profile, signOut } = useAuth();
@@ -31,6 +36,27 @@ export default function Navbar() {
   const [isDark, setIsDark] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const {
+    isNetworkOnline,
+    isManualOffline,
+    isOfflineMode,
+    pendingSyncCount,
+    toggleManualOffline,
+  } = useOfflineMode();
+
+  const handleToggleOfflineMode = async () => {
+    if (!isNetworkOnline && isManualOffline) {
+      toast.info('Internet is currently disconnected. Local offline mode remains active.');
+      return;
+    }
+    const nextOffline = !isManualOffline;
+    await toggleManualOffline();
+    if (nextOffline) {
+      toast.info('Offline Mode enabled. Changes will save locally until you go back online.');
+    } else {
+      toast.success('Online Mode enabled. Syncing local changes to cloud.');
+    }
+  };
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem('sst_sidebar_collapsed') === 'true';
@@ -312,6 +338,52 @@ export default function Navbar() {
           </Button>
         )}
 
+        {/* Offline Mode Toggle & PWA Install */}
+        <div className="space-y-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size={isCompact ? 'icon' : 'sm'}
+            onClick={handleToggleOfflineMode}
+            title={
+              isOfflineMode
+                ? 'Offline Mode Active (Click to switch to Online)'
+                : 'Online Mode (Click to enable Offline Mode)'
+            }
+            className={`${
+              isCompact ? 'w-full h-9 relative' : 'w-full justify-between gap-2'
+            } rounded-xl border cursor-pointer ${
+              isOfflineMode
+                ? 'border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300'
+                : 'border-slate-200/80 dark:border-white/15 bg-white/75 dark:bg-white/5 hover:bg-white dark:hover:bg-white/15 text-foreground'
+            }`}
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              {isOfflineMode ? (
+                <WifiOff className="h-4 w-4 shrink-0" />
+              ) : (
+                <Wifi className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              {!isCompact && (
+                <span className="text-xs font-medium truncate">
+                  {isOfflineMode ? 'Offline Mode' : 'Online Sync'}
+                </span>
+              )}
+            </span>
+            {pendingSyncCount > 0 && (
+              <span
+                className={`${
+                  isCompact ? 'absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px]' : 'h-5 min-w-5 px-1.5 text-[11px]'
+                } inline-flex items-center justify-center font-bold leading-none text-white bg-amber-600 rounded-full tabular-nums`}
+              >
+                {pendingSyncCount}
+              </span>
+            )}
+          </Button>
+
+          <PWAInstallButton compact={isCompact && !isMobile} />
+        </div>
+
         <div className={`flex ${isCompact ? 'flex-col' : 'flex-row'} gap-2`}>
           <Button
             variant="ghost"
@@ -380,6 +452,25 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleToggleOfflineMode}
+              aria-label={isOfflineMode ? 'Switch to Online Mode' : 'Enable Offline Mode'}
+              title={isOfflineMode ? 'Offline Mode Active' : 'Enable Offline Mode'}
+              className={`relative rounded-xl ${
+                isOfflineMode
+                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                  : 'text-foreground/80 hover:text-foreground hover:bg-slate-200/50 dark:hover:bg-white/10'
+              }`}
+            >
+              {isOfflineMode ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
+              {pendingSyncCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                  {pendingSyncCount}
+                </span>
+              )}
+            </Button>
             <Button
               variant="ghost"
               size="icon"

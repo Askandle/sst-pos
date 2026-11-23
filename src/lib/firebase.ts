@@ -1,12 +1,35 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  doc,
+  getDocFromServer,
+  enableNetwork,
+  disableNetwork,
+  type Firestore,
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-/* CRITICAL: Must pass firestoreDatabaseId from firebase-applet-config.json */
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+function initDb(): Firestore {
+  try {
+    if (typeof window !== 'undefined') {
+      return initializeFirestore(
+        app,
+        { experimentalForceLongPolling: true },
+        firebaseConfig.firestoreDatabaseId
+      );
+    }
+  } catch {
+    // Fallback if Firestore instance was already initialized (e.g. during hot reload)
+  }
+  /* CRITICAL: Must pass firestoreDatabaseId from firebase-applet-config.json */
+  return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+
+export const db = initDb();
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -63,6 +86,9 @@ export function handleFirestoreError(
 
 // Validate connection on boot
 export async function testFirestoreConnection(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return false;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
@@ -72,5 +98,17 @@ export async function testFirestoreConnection(): Promise<boolean> {
       return false;
     }
     return true;
+  }
+}
+
+export async function setFirestoreNetworkEnabled(enabled: boolean): Promise<void> {
+  try {
+    if (enabled) {
+      await enableNetwork(db);
+    } else {
+      await disableNetwork(db);
+    }
+  } catch (err) {
+    console.warn('Firestore network toggle notice:', err);
   }
 }
