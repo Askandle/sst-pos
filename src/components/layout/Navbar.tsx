@@ -19,12 +19,14 @@ import {
   Search,
   Wifi,
   WifiOff,
+  Cpu,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import SearchItemsDialog from '@/components/SearchItemsDialog';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { useOfflineMode } from '@/hooks/useOfflineMode';
+import { getHardwareConfig } from '@/lib/hardware';
 import { toast } from 'sonner';
 
 export default function Navbar() {
@@ -70,11 +72,16 @@ export default function Navbar() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setSearchOpen((prev) => !prev);
+        return;
+      }
+      if (e.key === 'F4' && getHardwareConfig().terminalShortcutsEnabled) {
+        e.preventDefault();
+        navigate('/checkout');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     const updateCart = () => {
@@ -145,6 +152,7 @@ export default function Navbar() {
     },
     { to: '/transactions', label: 'Transactions', icon: Receipt },
     { to: '/expenses', label: 'Expenses', icon: TrendingDown },
+    { to: '/hardware', label: 'Hardware', icon: Cpu },
     { to: '/admin', label: 'Admin', icon: Shield },
   ];
 

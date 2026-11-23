@@ -10,8 +10,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Monitor, Printer, User, Phone, Receipt, Download } from 'lucide-react';
+import { Monitor, Printer, User, Phone, Receipt, Download, ReceiptText } from 'lucide-react';
 import { toast } from 'sonner';
+import { printThermalReceipt } from '@/lib/hardware';
 
 interface InvoiceModalProps {
   transaction: TransactionWithItems | null;
@@ -107,7 +108,9 @@ function buildPrintableInvoiceHtml(transaction: TransactionWithItems): string {
       <div style="text-align:right;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;">Transaction Info</div>
         <div style="margin-top:4px;">Served By: <strong>${escapeHtml(transaction.staff?.username || 'Staff')}</strong></div>
+        ${transaction.terminal_id ? `<div style="margin-top:2px;">Terminal ID: <strong style="font-family:monospace;">${escapeHtml(transaction.terminal_id)}</strong></div>` : ''}
         <div style="margin-top:2px;">Payment Method: <strong>${escapeHtml(formatPaymentLabel(transaction.payment_method))}</strong></div>
+        ${transaction.card_last4 ? `<div style="margin-top:2px;">Card: <strong>${escapeHtml(transaction.card_brand || 'CARD')} **** ${escapeHtml(transaction.card_last4)}</strong>${transaction.auth_code ? ` (Auth: ${escapeHtml(transaction.auth_code)})` : ''}</div>` : ''}
       </div>
     </div>
 
@@ -227,12 +230,26 @@ function InvoiceSheet({ transaction }: { transaction: TransactionWithItems }) {
               {transaction.staff?.username || 'Staff'}
             </span>
           </p>
+          {transaction.terminal_id && (
+            <p className="text-slate-700">
+              Terminal:{' '}
+              <span className="font-mono font-semibold text-slate-900">
+                {transaction.terminal_id}
+              </span>
+            </p>
+          )}
           <p className="text-slate-700">
             Payment Method:{' '}
             <span className="font-semibold text-slate-900">
               {formatPaymentLabel(transaction.payment_method)}
             </span>
           </p>
+          {transaction.card_last4 && (
+            <p className="text-slate-700 font-mono text-xs">
+              {transaction.card_brand || 'Card'} **** {transaction.card_last4}
+              {transaction.auth_code ? ` · Auth ${transaction.auth_code}` : ''}
+            </p>
+          )}
         </div>
       </div>
 
@@ -359,6 +376,11 @@ export default function InvoiceModal({
     toast.success(`Invoice ${transaction.transaction_number} downloaded`);
   };
 
+  const handleThermalPrint = async () => {
+    const res = await printThermalReceipt(transaction);
+    toast.success(res.message);
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -375,7 +397,7 @@ export default function InvoiceModal({
 
           <InvoiceSheet transaction={transaction} />
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
             {footerActions}
             <Button
               type="button"
@@ -385,6 +407,15 @@ export default function InvoiceModal({
             >
               <Download className="mr-2 h-4 w-4" />
               Download Invoice
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleThermalPrint}
+              className="cursor-pointer border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10"
+            >
+              <ReceiptText className="mr-2 h-4 w-4" />
+              Thermal Receipt
             </Button>
             <Button
               type="button"

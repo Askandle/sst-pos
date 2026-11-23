@@ -27,6 +27,7 @@ export interface Product {
   price: number;
   stock_quantity: number;
   category: string;
+  barcode?: string | null;
   image_url?: string | null;
   created_at?: string;
 }
@@ -80,6 +81,10 @@ export interface Transaction {
   payment_method: PaymentMethod;
   status: 'completed' | 'refunded';
   notes?: string | null;
+  terminal_id?: string | null;
+  card_last4?: string | null;
+  card_brand?: string | null;
+  auth_code?: string | null;
   created_at: string;
 }
 

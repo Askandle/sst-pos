@@ -1,9 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { createTransaction } from '@/db/api';
-import type { CartItem, PaymentMethod, TransactionWithItems } from '@/types';
+import { createTransaction, getAllProducts } from '@/db/api';
+import type { CartItem, PaymentMethod, Product, TransactionWithItems } from '@/types';
 import InvoiceModal from '@/components/InvoiceModal';
+import BarcodeScanControl from '@/components/BarcodeScanControl';
+import { useBarcodeScanner, useHardwareState } from '@/hooks/useBarcodeScanner';
+import {
+  addProductByBarcodeToCart,
+  openCashDrawer,
+  printThermalReceipt,
+  parseCardTrackData,
+  sendCardTerminalRequest,
+  playHardwareBeep,
+} from '@/lib/hardware';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,29 +22,91 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, ShoppingCart, CreditCard, Loader2, User, Phone, Printer, CheckCircle2 } from 'lucide-react';
+import {
+  Trash2,
+  ShoppingCart,
+  CreditCard,
+  Loader2,
+  User,
+  Phone,
+  Printer,
+  CheckCircle2,
+  Inbox,
+  Terminal,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function CheckoutPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [cardSwipeBuffer, setCardSwipeBuffer] = useState('');
+  const [cardLast4, setCardLast4] = useState('');
+  const [cardBrand, setCardBrand] = useState('');
+  const [cardAuthCode, setCardAuthCode] = useState('');
+  const [isCardTerminalBusy, setIsCardTerminalBusy] = useState(false);
   const [notes, setNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedTransaction, setCompletedTransaction] = useState<TransactionWithItems | null>(null);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { config: hardwareConfig } = useHardwareState();
+
+  const loadCart = useCallback(() => {
+    try {
+      const storedCart = JSON.parse(sessionStorage.getItem('cart') || '[]');
+      setCart(storedCart);
+    } catch {
+      setCart([]);
+    }
+  }, []);
 
   useEffect(() => {
     loadCart();
-  }, []);
+    getAllProducts().then(setProducts).catch(console.warn);
 
-  const loadCart = () => {
-    const storedCart = JSON.parse(sessionStorage.getItem('cart') || '[]');
-    setCart(storedCart);
-  };
+    const refreshProducts = () => {
+      getAllProducts().then(setProducts).catch(console.warn);
+    };
+
+    window.addEventListener('cart-updated', loadCart);
+    window.addEventListener('products-updated', refreshProducts);
+    return () => {
+      window.removeEventListener('cart-updated', loadCart);
+      window.removeEventListener('products-updated', refreshProducts);
+    };
+  }, [loadCart]);
+
+  const handleBarcodeScan = useCallback(
+    (code: string) => {
+      const res = addProductByBarcodeToCart(products, code);
+      if (res.ok) {
+        loadCart();
+        toast.success(res.message);
+      } else {
+        toast.error(res.message);
+      }
+    },
+    [products, loadCart]
+  );
+
+  useBarcodeScanner({
+    enabled: !invoiceOpen,
+    onScan: handleBarcodeScan,
+  });
+
+  const handleOpenCashDrawer = useCallback(async () => {
+    const res = await openCashDrawer(`Checkout (${hardwareConfig.terminalId})`);
+    if (res.sentToHardware) {
+      toast.success(res.message);
+    } else {
+      toast.info(res.message);
+    }
+  }, [hardwareConfig.terminalId]);
 
   const removeFromCart = (index: number) => {
     const updatedCart = cart.filter((_, i) => i !== index);
@@ -108,13 +180,23 @@ export default function CheckoutPage() {
         items,
         notes?.trim() || undefined,
         cleanName,
-        cleanPhone
+        cleanPhone,
+        {
+          terminal_id: hardwareConfig.terminalId,
+          card_last4: paymentMethod === 'card' ? cardLast4 || null : null,
+          card_brand: paymentMethod === 'card' ? cardBrand || null : null,
+          auth_code: paymentMethod === 'card' ? cardAuthCode || null : null,
+        }
       );
 
       sessionStorage.removeItem('cart');
       setCart([]);
       setCustomerName('');
       setCustomerPhone('');
+      setCardSwipeBuffer('');
+      setCardLast4('');
+      setCardBrand('');
+      setCardAuthCode('');
       setNotes('');
       window.dispatchEvent(new Event('cart-updated'));
       window.dispatchEvent(new Event('transactions-updated'));
@@ -123,11 +205,84 @@ export default function CheckoutPage() {
       setCompletedTransaction(newTxn);
       setInvoiceOpen(true);
       toast.success('Transaction completed! Invoice is ready to print.');
+
+      if (
+        paymentMethod === 'cash' &&
+        hardwareConfig.cashDrawerEnabled &&
+        hardwareConfig.autoOpenDrawerOnCash
+      ) {
+        void openCashDrawer(`Cash sale ${newTxn.transaction_number}`);
+      }
+
+      if (hardwareConfig.autoPrintReceipt) {
+        void printThermalReceipt(newTxn).then((printRes) => {
+          toast.info(printRes.message);
+        });
+      }
     } catch (error) {
       console.error('Checkout error:', error);
       toast.error('Failed to process transaction');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!hardwareConfig.terminalShortcutsEnabled) return;
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        scanInputRef.current?.focus();
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        void handleOpenCashDrawer();
+      } else if (e.key === 'F9' && cart.length > 0 && !isProcessing) {
+        e.preventDefault();
+        void handleCheckout();
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [hardwareConfig.terminalShortcutsEnabled, cart.length, isProcessing, handleOpenCashDrawer]);
+
+  const handleCardSwipeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const parsed = parseCardTrackData(cardSwipeBuffer);
+    if (parsed) {
+      setCardLast4(parsed.last4);
+      setCardBrand(parsed.brand);
+      if (parsed.holderName && !customerName.trim()) {
+        setCustomerName(parsed.holderName);
+      }
+      playHardwareBeep('success');
+      toast.success(`Card read: ${parsed.brand} ending in ${parsed.last4}`);
+    } else {
+      playHardwareBeep('error');
+      toast.error('Unrecognized card track data. Enter last 4 digits manually if using standalone terminal.');
+    }
+    setCardSwipeBuffer('');
+  };
+
+  const handleTerminalCharge = async () => {
+    setIsCardTerminalBusy(true);
+    try {
+      const ref = `SST-${Date.now()}`;
+      const res = await sendCardTerminalRequest(calculateTotal(), ref, hardwareConfig);
+      if (res.approved) {
+        if (res.last4) setCardLast4(res.last4);
+        if (res.brand) setCardBrand(res.brand);
+        if (res.authCode) setCardAuthCode(res.authCode);
+        playHardwareBeep('success');
+        toast.success('Card payment approved by EFTPOS terminal');
+      } else {
+        playHardwareBeep('error');
+        toast.error(res.error || 'Terminal did not approve charge');
+      }
+    } finally {
+      setIsCardTerminalBusy(false);
     }
   };
 
@@ -141,9 +296,31 @@ export default function CheckoutPage() {
   if (cart.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="glass-surface glass-header-bar glass-section">
-          <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
-          <p className="text-muted-foreground">Complete your transaction</p>
+        <div className="glass-surface glass-header-bar glass-section flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
+            <p className="text-muted-foreground">
+              Terminal: <span className="font-mono font-semibold text-foreground">{hardwareConfig.terminalId}</span> · Scan a product barcode or add items to begin
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleOpenCashDrawer}
+            className="rounded-xl cursor-pointer shrink-0"
+          >
+            <Inbox className="mr-2 h-4 w-4" />
+            Open Cash Drawer (F8)
+          </Button>
+        </div>
+
+        <div className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3">
+          <BarcodeScanControl
+            inputRef={scanInputRef}
+            onScan={handleBarcodeScan}
+            placeholder="Scan product barcode to start checkout immediately..."
+            buttonLabel="Scan Item"
+          />
         </div>
 
         {completedTransaction ? (
@@ -189,7 +366,7 @@ export default function CheckoutPage() {
             <CardContent className="flex flex-col items-center justify-center py-12">
               <ShoppingCart className="h-16 w-16 text-muted-foreground mb-4" />
               <h3 className="text-xl font-semibold mb-2">Your cart is empty</h3>
-              <p className="text-muted-foreground mb-4">Add services or products to get started</p>
+              <p className="text-muted-foreground mb-4">Scan a barcode above, or select services or products</p>
               <div className="flex gap-2">
                 <Button onClick={() => navigate('/services')}>Browse Services</Button>
                 <Button variant="outline" onClick={() => navigate('/products')}>
@@ -223,15 +400,37 @@ export default function CheckoutPage() {
 
   return (
     <div className="space-y-6">
-      <div className="glass-surface glass-header-bar glass-section flex items-center justify-between gap-3">
+      <div className="glass-surface glass-header-bar glass-section flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Checkout</h1>
-          <p className="text-muted-foreground">Enter customer details and complete transaction</p>
+          <p className="text-muted-foreground">
+            Terminal: <span className="font-mono font-semibold text-foreground">{hardwareConfig.terminalId}</span> · Scan barcodes or complete payment
+          </p>
         </div>
-        <Button variant="outline" onClick={clearCart}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          Clear Cart
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleOpenCashDrawer}
+            className="rounded-xl cursor-pointer"
+          >
+            <Inbox className="mr-2 h-4 w-4" />
+            Open Drawer (F8)
+          </Button>
+          <Button variant="outline" onClick={clearCart} className="rounded-xl cursor-pointer">
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear Cart
+          </Button>
+        </div>
+      </div>
+
+      <div className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3">
+        <BarcodeScanControl
+          inputRef={scanInputRef}
+          onScan={handleBarcodeScan}
+          placeholder="Scan barcode to add or increment product in cart (F2)..."
+          buttonLabel="Scan Item"
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -337,11 +536,81 @@ export default function CheckoutPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="card">Card</SelectItem>
+                    <SelectItem value="card">Card / EFTPOS Terminal</SelectItem>
                     <SelectItem value="mobile">Mobile Payment</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {paymentMethod === 'card' && hardwareConfig.cardReaderEnabled && (
+                <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <Terminal className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                      Card Reader / Payment Terminal
+                    </span>
+                    {hardwareConfig.cardTerminalMode === 'network-terminal' && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isCardTerminalBusy}
+                        onClick={handleTerminalCharge}
+                        className="h-7 px-2.5 text-xs cursor-pointer"
+                      >
+                        {isCardTerminalBusy ? 'Waiting...' : 'Send to Terminal'}
+                      </Button>
+                    )}
+                  </div>
+
+                  {hardwareConfig.cardTerminalMode === 'usb-msr' && (
+                    <div className="space-y-1">
+                      <Label htmlFor="card-swipe-input" className="text-xs">
+                        USB Swipe / Tap Reader (Focus &amp; Swipe)
+                      </Label>
+                      <Input
+                        id="card-swipe-input"
+                        type="password"
+                        data-barcode-ignore="true"
+                        value={cardSwipeBuffer}
+                        onChange={(e) => setCardSwipeBuffer(e.target.value)}
+                        onKeyDown={handleCardSwipeKeyDown}
+                        placeholder="Swipe card on USB reader..."
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="card-last4" className="text-xs">
+                        Card Last 4
+                      </Label>
+                      <Input
+                        id="card-last4"
+                        maxLength={4}
+                        value={cardLast4}
+                        onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        placeholder="1234"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="card-auth" className="text-xs">
+                        Auth / Ref Code
+                      </Label>
+                      <Input
+                        id="card-auth"
+                        maxLength={24}
+                        value={cardAuthCode}
+                        onChange={(e) => setCardAuthCode(e.target.value)}
+                        placeholder="AUTH123"
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="notes">Notes (Optional)</Label>

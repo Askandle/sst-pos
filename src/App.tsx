@@ -16,6 +16,7 @@ import CheckoutPage from '@/pages/CheckoutPage';
 import TransactionsPage from '@/pages/TransactionsPage';
 import ExpensesPage from '@/pages/ExpensesPage';
 import AdminPage from '@/pages/AdminPage';
+import HardwarePage from '@/pages/HardwarePage';
 import LoginPage from '@/pages/LoginPage';
 import NotFound from '@/pages/NotFound';
 
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/checkout" element={<CheckoutPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/expenses" element={<ExpensesPage />} />
+            <Route path="/hardware" element={<HardwarePage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="*" element={<NotFound />} />
           </Route>

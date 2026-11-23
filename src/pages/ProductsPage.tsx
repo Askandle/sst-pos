@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAllProducts, createProduct, updateProduct, deleteProduct } from '@/db/api';
@@ -29,7 +29,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ShoppingCart, Plus, Minus, Package, Edit, Trash2, ImageIcon, Search, X } from 'lucide-react';
+import BarcodeScanControl from '@/components/BarcodeScanControl';
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
+import { addProductByBarcodeToCart } from '@/lib/hardware';
+import { ShoppingCart, Plus, Minus, Package, Edit, Trash2, ImageIcon, Search, X, ScanBarcode } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ProductsPage() {
@@ -52,6 +55,8 @@ export default function ProductsPage() {
   const [formPrice, setFormPrice] = useState('');
   const [formStock, setFormStock] = useState('');
   const [formCategory, setFormCategory] = useState('');
+  const [formBarcode, setFormBarcode] = useState('');
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -72,6 +77,31 @@ export default function ProductsPage() {
       window.removeEventListener('focus', handleUpdate);
     };
   }, []);
+
+  const handleBarcodeScan = (code: string) => {
+    const res = addProductByBarcodeToCart(products, code);
+    if (res.ok) {
+      toast.success(res.message);
+    } else {
+      toast.error(res.message);
+    }
+  };
+
+  useBarcodeScanner({
+    enabled: !dialogOpen && !deleteDialogOpen,
+    onScan: handleBarcodeScan,
+  });
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F2' && !dialogOpen && !deleteDialogOpen) {
+        e.preventDefault();
+        scanInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialogOpen, deleteDialogOpen]);
 
   const loadProducts = async () => {
     try {
@@ -152,6 +182,7 @@ export default function ProductsPage() {
     setFormPrice('');
     setFormStock('');
     setFormCategory('');
+    setFormBarcode('');
     setImageFile(null);
     setImagePreview(null);
     setUploadProgress(0);
@@ -165,6 +196,7 @@ export default function ProductsPage() {
     setFormPrice(product.price.toString());
     setFormStock(product.stock_quantity.toString());
     setFormCategory(product.category);
+    setFormBarcode(product.barcode || '');
     setImageFile(null);
     setImagePreview(product.image_url || null);
     setUploadProgress(0);
@@ -219,6 +251,7 @@ export default function ProductsPage() {
           price,
           stock_quantity: stock,
           category: formCategory,
+          barcode: formBarcode || null,
           image_url: imageUrl
         });
         toast.success('Product updated successfully');
@@ -229,6 +262,7 @@ export default function ProductsPage() {
           price,
           stock_quantity: stock,
           category: formCategory,
+          barcode: formBarcode || null,
           image_url: imageUrl || undefined
         });
         toast.success('Product created successfully');
@@ -270,6 +304,7 @@ export default function ProductsPage() {
         (product) =>
           product.name.toLowerCase().includes(normalizedQuery) ||
           product.category.toLowerCase().includes(normalizedQuery) ||
+          (product.barcode || '').toLowerCase().includes(normalizedQuery) ||
           (product.description || '').toLowerCase().includes(normalizedQuery)
       )
     : products;
@@ -329,51 +364,62 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Glass Search Bar */}
-      <form
-        onSubmit={(e) => e.preventDefault()}
-        className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
-      >
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <Input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search products by name, category, or description..."
-            className="pl-9 pr-9 h-10 rounded-xl border-2 border-emerald-500/30 focus-visible:ring-emerald-500"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear product search"
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="submit"
-            className="h-10 px-4 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Search className="mr-2 h-4 w-4" />
-            Search
-          </Button>
-          {searchQuery && (
+      {/* Glass Search & Barcode Scan Bar */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <form
+          onSubmit={(e) => e.preventDefault()}
+          className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
+        >
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search products by name, category, or barcode..."
+              className="pl-9 pr-9 h-10 rounded-xl border-2 border-emerald-500/30 focus-visible:ring-emerald-500"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear product search"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
             <Button
-              type="button"
-              variant="outline"
-              onClick={() => setSearchQuery('')}
-              className="h-10 px-3 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
+              type="submit"
+              className="h-10 px-4 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
             >
-              Clear
+              <Search className="mr-2 h-4 w-4" />
+              Search
             </Button>
-          )}
+            {searchQuery && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSearchQuery('')}
+                className="h-10 px-3 rounded-xl cursor-pointer whitespace-nowrap shrink-0"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </form>
+
+        <div className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3">
+          <BarcodeScanControl
+            inputRef={scanInputRef}
+            onScan={handleBarcodeScan}
+            placeholder="Scan product barcode to add straight to cart..."
+            buttonLabel="Add by Barcode"
+          />
         </div>
-      </form>
+      </div>
 
       {Object.keys(groupedProducts).length === 0 ? (
         <Card className="border-2 border-emerald-500/30 rounded-xl shadow-xs">
@@ -436,7 +482,7 @@ export default function ProductsPage() {
                   </CardTitle>
                   <CardDescription>
                     {product.description}
-                    <div className="flex items-center gap-2 mt-2">
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
                       <Badge
                         variant={product.stock_quantity > 10 ? 'default' : 'destructive'}
                         className={
@@ -447,6 +493,11 @@ export default function ProductsPage() {
                       >
                         Stock: {product.stock_quantity}
                       </Badge>
+                      {product.barcode && (
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          SKU: {product.barcode}
+                        </span>
+                      )}
                     </div>
                   </CardDescription>
                 </CardHeader>
@@ -638,6 +689,33 @@ export default function ProductsPage() {
                     placeholder="e.g., accessories, storage, cables"
                     required
                   />
+                </div>
+
+                <div className="space-y-2 col-span-2">
+                  <Label htmlFor="product-barcode" className="flex items-center gap-1.5">
+                    <ScanBarcode className="h-3.5 w-3.5 text-muted-foreground" />
+                    Barcode / SKU
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="product-barcode"
+                      data-barcode-ignore="true"
+                      value={formBarcode}
+                      onChange={(e) => setFormBarcode(e.target.value)}
+                      placeholder="Scan item barcode or enter SKU..."
+                      className="font-mono"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setFormBarcode(`603${Date.now().toString().slice(-10)}`)
+                      }
+                      className="cursor-pointer shrink-0"
+                    >
+                      Generate
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

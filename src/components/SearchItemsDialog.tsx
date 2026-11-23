@@ -28,6 +28,7 @@ interface UnifiedSearchItem {
   description: string;
   price: number;
   meta: string;
+  barcode?: string | null;
   stock?: number;
   unit?: string;
   imageUrl?: string | null;
@@ -79,7 +80,8 @@ export default function SearchItemsDialog({ open, onOpenChange }: SearchItemsDia
       name: p.name,
       description: p.description || '',
       price: Number(p.price || 0),
-      meta: `${p.category} · Stock: ${p.stock_quantity}`,
+      meta: `${p.category} · Stock: ${p.stock_quantity}${p.barcode ? ` · ${p.barcode}` : ''}`,
+      barcode: p.barcode,
       stock: p.stock_quantity,
       imageUrl: p.image_url,
     }));
@@ -105,7 +107,8 @@ export default function SearchItemsDialog({ open, onOpenChange }: SearchItemsDia
       return (
         item.name.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q) ||
-        item.meta.toLowerCase().includes(q)
+        item.meta.toLowerCase().includes(q) ||
+        (item.barcode || '').toLowerCase().includes(q)
       );
     });
   }, [allItems, query, filterType]);

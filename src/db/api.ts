@@ -121,6 +121,7 @@ const INITIAL_PRODUCTS: Product[] = [
     price: 24.99,
     stock_quantity: 14,
     category: 'accessories',
+    barcode: '6030001000012',
     image_url: 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=500&auto=format&fit=crop&q=60',
     created_at: new Date().toISOString(),
   },
@@ -131,6 +132,7 @@ const INITIAL_PRODUCTS: Product[] = [
     price: 12.5,
     stock_quantity: 20,
     category: 'storage',
+    barcode: '6030001000029',
     image_url: 'https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?w=500&auto=format&fit=crop&q=60',
     created_at: new Date().toISOString(),
   },
@@ -141,6 +143,7 @@ const INITIAL_PRODUCTS: Product[] = [
     price: 6.99,
     stock_quantity: 5,
     category: 'cables',
+    barcode: '6030001000036',
     image_url: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?w=500&auto=format&fit=crop&q=60',
     created_at: new Date().toISOString(),
   },
@@ -151,6 +154,7 @@ const INITIAL_PRODUCTS: Product[] = [
     price: 8.5,
     stock_quantity: 4,
     category: 'cables',
+    barcode: '6030001000043',
     image_url: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=500&auto=format&fit=crop&q=60',
     created_at: new Date().toISOString(),
   },
@@ -161,6 +165,7 @@ const INITIAL_PRODUCTS: Product[] = [
     price: 3.5,
     stock_quantity: 28,
     category: 'snacks & drinks',
+    barcode: '6030001000050',
     image_url: 'https://images.unsplash.com/photo-1622543925917-763c34d1a86e?w=500&auto=format&fit=crop&q=60',
     created_at: new Date().toISOString(),
   },
@@ -171,6 +176,7 @@ const INITIAL_PRODUCTS: Product[] = [
     price: 7.99,
     stock_quantity: 3,
     category: 'stationery',
+    barcode: '6030001000067',
     image_url: 'https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=500&auto=format&fit=crop&q=60',
     created_at: new Date().toISOString(),
   },
@@ -971,6 +977,7 @@ export async function createProduct(data: {
   price: number;
   stock_quantity: number;
   category: string;
+  barcode?: string | null;
   image_url?: string | null;
 }): Promise<Product> {
   const newProduct: Product = {
@@ -980,6 +987,7 @@ export async function createProduct(data: {
     price: Number(data.price),
     stock_quantity: Number(data.stock_quantity),
     category: data.category.toLowerCase().trim(),
+    barcode: data.barcode?.trim() || null,
     image_url: data.image_url?.trim() || null,
     created_at: new Date().toISOString(),
   };
@@ -1005,6 +1013,7 @@ export async function updateProduct(
 
   const cleanUpdates: any = { ...updates };
   if (cleanUpdates.description !== undefined) cleanUpdates.description = cleanUpdates.description?.trim() || null;
+  if (cleanUpdates.barcode !== undefined) cleanUpdates.barcode = cleanUpdates.barcode?.trim() || null;
   if (cleanUpdates.image_url !== undefined) cleanUpdates.image_url = cleanUpdates.image_url?.trim() || null;
 
   const updated: Product = {
@@ -1200,7 +1209,13 @@ export async function createTransaction(
   }>,
   notes?: string,
   customerName?: string,
-  customerPhone?: string
+  customerPhone?: string,
+  hardwareMeta?: {
+    terminal_id?: string | null;
+    card_last4?: string | null;
+    card_brand?: string | null;
+    auth_code?: string | null;
+  }
 ): Promise<TransactionWithItems> {
   const profiles = getItem<Profile[]>(STORAGE_KEYS.PROFILES, []);
   const staff = profiles.find((p) => p.id === userId);
@@ -1246,6 +1261,10 @@ export async function createTransaction(
     payment_method: paymentMethod,
     status: 'completed',
     notes: cleanNotes,
+    terminal_id: hardwareMeta?.terminal_id?.trim() || null,
+    card_last4: hardwareMeta?.card_last4?.trim() || null,
+    card_brand: hardwareMeta?.card_brand?.trim() || null,
+    auth_code: hardwareMeta?.auth_code?.trim() || null,
     created_at: new Date().toISOString(),
     items: items.map((it, idx) => ({
       id: `item_${Date.now()}_${idx}`,

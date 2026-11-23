@@ -24,6 +24,7 @@
         "price": { "type": "number" },
         "stock_quantity": { "type": "number" },
         "category": { "type": "string", "maxLength": 80 },
+        "barcode": { "type": "string", "maxLength": 80 },
         "image_url": { "type": "string" },
         "created_at": { "type": "string" }
       },
@@ -76,6 +77,10 @@
         "payment_method": { "type": "string", "enum": ["cash", "card", "mobile"] },
         "status": { "type": "string", "enum": ["completed", "refunded"] },
         "notes": { "type": "string", "maxLength": 500 },
+        "terminal_id": { "type": "string", "maxLength": 64 },
+        "card_last4": { "type": "string", "maxLength": 8 },
+        "card_brand": { "type": "string", "maxLength": 32 },
+        "auth_code": { "type": "string", "maxLength": 64 },
         "created_at": { "type": "string" },
         "items": { "type": "array" }
       },

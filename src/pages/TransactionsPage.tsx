@@ -313,11 +313,26 @@ export default function TransactionsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Payment Method</p>
-                  <div className="mt-1">{getPaymentMethodBadge(selectedTransaction.payment_method)}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {getPaymentMethodBadge(selectedTransaction.payment_method)}
+                    {selectedTransaction.card_last4 && (
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {selectedTransaction.card_brand || 'Card'} **** {selectedTransaction.card_last4}
+                        {selectedTransaction.auth_code ? ` · ${selectedTransaction.auth_code}` : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <div className="mt-1">{getStatusBadge(selectedTransaction.status)}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {getStatusBadge(selectedTransaction.status)}
+                    {selectedTransaction.terminal_id && (
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {selectedTransaction.terminal_id}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
