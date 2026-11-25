@@ -15,9 +15,8 @@ export interface HardwareConfig {
   receiptPaperWidth: '80mm' | '58mm';
   autoPrintReceipt: boolean;
   receiptHeaderNote: string;
-  cashDrawerEnabled: boolean;
-  cashDrawerPin: 0 | 1;
-  autoOpenDrawerOnCash: boolean;
+  serialPrinterBaudRate: 9600 | 19200 | 38400 | 115200;
+  autoConnectPrinters: boolean;
   cardReaderEnabled: boolean;
   cardTerminalMode: CardTerminalMode;
   cardTerminalEndpoint: string;
@@ -26,7 +25,7 @@ export interface HardwareConfig {
 export interface HardwareLogEntry {
   id: string;
   timestamp: string;
-  device: 'terminal' | 'scanner' | 'printer' | 'drawer' | 'card';
+  device: 'terminal' | 'scanner' | 'printer' | 'card';
   action: string;
   detail: string;
 }
@@ -42,6 +41,9 @@ export interface HardwareRuntimeState {
   serialPrinterLabel: string | null;
   usbPrinterConnected: boolean;
   usbPrinterLabel: string | null;
+  activePrinterTransport: 'usb' | 'serial' | null;
+  activePrinterLabel: string | null;
+  knownPrinterCount: number;
   serialScannerConnected: boolean;
   serialScannerLabel: string | null;
   serialSupported: boolean;
@@ -51,6 +53,26 @@ export interface HardwareRuntimeState {
 
 const HARDWARE_CONFIG_KEY = 'sst_hardware_config';
 const HARDWARE_LOG_KEY = 'sst_hardware_log';
+const REMEMBERED_PRINTERS_KEY = 'sst_remembered_printers';
+
+interface RememberedUsbPrinter {
+  vendorId: number;
+  productId: number;
+  serialNumber?: string;
+  label: string;
+}
+
+interface RememberedSerialPrinter {
+  usbVendorId?: number;
+  usbProductId?: number;
+  baudRate: number;
+  label: string;
+}
+
+interface RememberedPrintersStore {
+  usb: RememberedUsbPrinter[];
+  serial: RememberedSerialPrinter[];
+}
 
 export const DEFAULT_HARDWARE_CONFIG: HardwareConfig = {
   terminalId: 'POS-TERM-01',
@@ -63,9 +85,8 @@ export const DEFAULT_HARDWARE_CONFIG: HardwareConfig = {
   receiptPaperWidth: '80mm',
   autoPrintReceipt: false,
   receiptHeaderNote: 'Sanyali School of Technology · Computer Lab & Cafe',
-  cashDrawerEnabled: true,
-  cashDrawerPin: 0,
-  autoOpenDrawerOnCash: true,
+  serialPrinterBaudRate: 9600,
+  autoConnectPrinters: true,
   cardReaderEnabled: true,
   cardTerminalMode: 'usb-msr',
   cardTerminalEndpoint: '',
@@ -73,6 +94,7 @@ export const DEFAULT_HARDWARE_CONFIG: HardwareConfig = {
 
 // Minimal ambient types for Web Serial & WebUSB
 interface WebSerialPort {
+  connected?: boolean;
   open(options: { baudRate: number }): Promise<void>;
   close(): Promise<void>;
   readable: ReadableStream<Uint8Array> | null;
@@ -82,6 +104,9 @@ interface WebSerialPort {
 
 interface WebUSBDevice {
   opened: boolean;
+  vendorId?: number;
+  productId?: number;
+  serialNumber?: string;
   productName?: string;
   manufacturerName?: string;
   configuration: {
@@ -90,6 +115,7 @@ interface WebUSBDevice {
       interfaceNumber: number;
       alternates: Array<{
         alternateSetting: number;
+        interfaceClass?: number;
         endpoints: Array<{
           endpointNumber: number;
           direction: 'in' | 'out';
@@ -102,17 +128,32 @@ interface WebUSBDevice {
   close(): Promise<void>;
   selectConfiguration(configurationValue: number): Promise<void>;
   claimInterface(interfaceNumber: number): Promise<void>;
+  selectAlternateInterface?: (interfaceNumber: number, alternateSetting: number) => Promise<void>;
   transferOut(endpointNumber: number, data: BufferSource): Promise<{ status: string }>;
 }
 
-function getSerialApi(): { requestPort: () => Promise<WebSerialPort> } | undefined {
-  if (typeof navigator === 'undefined') return undefined;
-  return (navigator as unknown as { serial?: { requestPort: () => Promise<WebSerialPort> } }).serial;
+interface WebSerialApi {
+  requestPort: () => Promise<WebSerialPort>;
+  getPorts?: () => Promise<WebSerialPort[]>;
+  addEventListener?: (type: string, listener: (ev: Event & { target?: unknown }) => void) => void;
+  removeEventListener?: (type: string, listener: (ev: Event & { target?: unknown }) => void) => void;
 }
 
-function getUsbApi(): { requestDevice: (opts: { filters: Array<Record<string, unknown>> }) => Promise<WebUSBDevice> } | undefined {
+interface WebUsbApi {
+  requestDevice: (opts: { filters: Array<Record<string, unknown>> }) => Promise<WebUSBDevice>;
+  getDevices?: () => Promise<WebUSBDevice[]>;
+  addEventListener?: (type: string, listener: (ev: Event & { device?: WebUSBDevice }) => void) => void;
+  removeEventListener?: (type: string, listener: (ev: Event & { device?: WebUSBDevice }) => void) => void;
+}
+
+function getSerialApi(): WebSerialApi | undefined {
   if (typeof navigator === 'undefined') return undefined;
-  return (navigator as unknown as { usb?: { requestDevice: (opts: { filters: Array<Record<string, unknown>> }) => Promise<WebUSBDevice> } }).usb;
+  return (navigator as unknown as { serial?: WebSerialApi }).serial;
+}
+
+function getUsbApi(): WebUsbApi | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return (navigator as unknown as { usb?: WebUsbApi }).usb;
 }
 
 let activeSerialPrinter: WebSerialPort | null = null;
@@ -127,10 +168,64 @@ let serialScannerReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 let serialScannerLabel: string | null = null;
 let serialScannerAbort = false;
 
+let knownAuthorizedPrinterCount = 0;
+let autoDetectInitialized = false;
+
 function emitHardwareChange(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('hardware-state-changed'));
   }
+}
+
+function emitPrinterCableEvent(detail: {
+  action: 'connected' | 'disconnected';
+  transport: 'usb' | 'serial';
+  label: string;
+}): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('printer-cable-event', { detail }));
+  }
+}
+
+function getRememberedPrinters(): RememberedPrintersStore {
+  try {
+    const raw = localStorage.getItem(REMEMBERED_PRINTERS_KEY);
+    if (!raw) return { usb: [], serial: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      usb: Array.isArray(parsed.usb) ? parsed.usb : [],
+      serial: Array.isArray(parsed.serial) ? parsed.serial : [],
+    };
+  } catch {
+    return { usb: [], serial: [] };
+  }
+}
+
+function saveRememberedUsbPrinter(entry: RememberedUsbPrinter): void {
+  const store = getRememberedPrinters();
+  const filtered = store.usb.filter(
+    (item) => !(item.vendorId === entry.vendorId && item.productId === entry.productId)
+  );
+  try {
+    localStorage.setItem(
+      REMEMBERED_PRINTERS_KEY,
+      JSON.stringify({ ...store, usb: [entry, ...filtered].slice(0, 10) })
+    );
+  } catch {}
+}
+
+function saveRememberedSerialPrinter(entry: RememberedSerialPrinter): void {
+  const store = getRememberedPrinters();
+  const filtered = store.serial.filter(
+    (item) =>
+      !(item.usbVendorId === entry.usbVendorId && item.usbProductId === entry.usbProductId)
+  );
+  try {
+    localStorage.setItem(
+      REMEMBERED_PRINTERS_KEY,
+      JSON.stringify({ ...store, serial: [entry, ...filtered].slice(0, 10) })
+    );
+  } catch {}
 }
 
 export function getHardwareConfig(): HardwareConfig {
@@ -198,11 +293,27 @@ export function clearHardwareLogs(): void {
 export function getHardwareRuntimeState(): HardwareRuntimeState {
   const cameraBarcodeSupported =
     typeof window !== 'undefined' && 'BarcodeDetector' in window;
+  const usbConnected = Boolean(activeUsbPrinter && activeUsbPrinter.opened);
+  const serialConnected = Boolean(activeSerialPrinter && activeSerialPrinter.writable);
+  const activePrinterTransport: 'usb' | 'serial' | null = usbConnected
+    ? 'usb'
+    : serialConnected
+      ? 'serial'
+      : null;
+  const activePrinterLabel = usbConnected
+    ? usbPrinterLabel
+    : serialConnected
+      ? serialPrinterLabel
+      : null;
+
   return {
-    serialPrinterConnected: Boolean(activeSerialPrinter),
+    serialPrinterConnected: serialConnected,
     serialPrinterLabel,
-    usbPrinterConnected: Boolean(activeUsbPrinter && activeUsbPrinter.opened),
+    usbPrinterConnected: usbConnected,
     usbPrinterLabel,
+    activePrinterTransport,
+    activePrinterLabel,
+    knownPrinterCount: knownAuthorizedPrinterCount,
     serialScannerConnected: Boolean(activeSerialScanner),
     serialScannerLabel,
     serialSupported: Boolean(getSerialApi()),
@@ -214,9 +325,9 @@ export function getHardwareRuntimeState(): HardwareRuntimeState {
 // --- Web Audio POS Beep Feedback ---
 let audioCtx: AudioContext | null = null;
 
-export function playHardwareBeep(kind: 'success' | 'error' | 'drawer' = 'success'): void {
+export function playHardwareBeep(kind: 'success' | 'error' = 'success'): void {
   const cfg = getHardwareConfig();
-  if (!cfg.barcodeBeep && kind !== 'drawer') return;
+  if (!cfg.barcodeBeep) return;
   if (typeof window === 'undefined') return;
 
   try {
@@ -240,14 +351,6 @@ export function playHardwareBeep(kind: 'success' | 'error' | 'drawer' = 'success
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
       osc.start(now);
       osc.stop(now + 0.095);
-    } else if (kind === 'drawer') {
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(880, now);
-      osc.frequency.setValueAtTime(1320, now + 0.06);
-      gain.gain.setValueAtTime(0.09, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-      osc.start(now);
-      osc.stop(now + 0.17);
     } else {
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(280, now);
@@ -282,11 +385,6 @@ function padRow(left: string, right: string, cols: number): string {
   const cleanLeft = left.slice(0, Math.max(1, cols - right.length - 1));
   const spaces = Math.max(1, cols - cleanLeft.length - right.length);
   return `${cleanLeft}${' '.repeat(spaces)}${right}`;
-}
-
-export function buildCashDrawerKickBytes(pin: 0 | 1 = 0): Uint8Array {
-  // ESC p m t1 t2 (Pin 2 = 0x00, Pin 5 = 0x01; 50ms on, 500ms off)
-  return new Uint8Array([0x1b, 0x70, pin, 0x19, 0xfa]);
 }
 
 export function buildEscPosReceiptBytes(
@@ -372,26 +470,66 @@ export function buildEscPosReceiptBytes(
   );
 }
 
-// --- Web Serial Printer / Drawer Connection ---
-export async function connectSerialPrinter(baudRate = 9600): Promise<{ ok: boolean; label?: string; error?: string }> {
+// --- Driverless Serial / USB-to-Serial Printer Connection ---
+function buildSerialPrinterLabel(port: WebSerialPort, baudRate: number): string {
+  const info = port.getInfo?.();
+  if (info?.usbVendorId) {
+    const vid = info.usbVendorId.toString(16).padStart(4, '0').toUpperCase();
+    const pid = (info.usbProductId || 0).toString(16).padStart(4, '0').toUpperCase();
+    return `Serial Cable Printer (${vid}:${pid})`;
+  }
+  return `Serial Printer (${baudRate} baud)`;
+}
+
+async function openSerialPrinterPort(
+  port: WebSerialPort,
+  baudRate: number,
+  options: { silent?: boolean; notifyCable?: boolean } = {}
+): Promise<{ ok: boolean; label?: string; error?: string }> {
+  try {
+    if (!port.writable) {
+      await port.open({ baudRate });
+    }
+    activeSerialPrinter = port;
+    const label = buildSerialPrinterLabel(port, baudRate);
+    serialPrinterLabel = label;
+
+    const info = port.getInfo?.();
+    saveRememberedSerialPrinter({
+      usbVendorId: info?.usbVendorId,
+      usbProductId: info?.usbProductId,
+      baudRate,
+      label,
+    });
+
+    if (!options.silent) {
+      saveHardwareConfig({ receiptPrinterMode: 'escpos-serial' });
+    }
+    appendHardwareLog('printer', 'Driverless Serial Printer Ready', label);
+    if (options.notifyCable) {
+      playHardwareBeep('success');
+      emitPrinterCableEvent({ action: 'connected', transport: 'serial', label });
+    }
+    emitHardwareChange();
+    return { ok: true, label };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Failed to open serial printer port',
+    };
+  }
+}
+
+export async function connectSerialPrinter(baudRate?: number): Promise<{ ok: boolean; label?: string; error?: string }> {
   const serial = getSerialApi();
   if (!serial) {
     return { ok: false, error: 'Web Serial API is not supported in this browser. Use Chrome/Edge over HTTPS.' };
   }
 
+  const rate = baudRate || getHardwareConfig().serialPrinterBaudRate || 9600;
   try {
     const port = await serial.requestPort();
-    await port.open({ baudRate });
-    activeSerialPrinter = port;
-    const info = port.getInfo?.();
-    serialPrinterLabel = info?.usbVendorId
-      ? `Serial Device (${info.usbVendorId.toString(16).toUpperCase()}:${(info.usbProductId || 0).toString(16).toUpperCase()})`
-      : `Serial Printer (${baudRate} baud)`;
-
-    saveHardwareConfig({ receiptPrinterMode: 'escpos-serial' });
-    appendHardwareLog('printer', 'Serial Printer Paired', serialPrinterLabel);
-    emitHardwareChange();
-    return { ok: true, label: serialPrinterLabel };
+    return await openSerialPrinterPort(port, rate);
   } catch (err) {
     return {
       ok: false,
@@ -423,7 +561,143 @@ export async function sendEscPosSerial(bytes: Uint8Array): Promise<boolean> {
   }
 }
 
-// --- WebUSB Printer / Drawer Connection ---
+// --- Driverless WebUSB Printer Connection (USB Printer Class 0x07 + Vendor Bulk-Out) ---
+function findUsbPrinterEndpoint(device: WebUSBDevice): {
+  interfaceNumber: number;
+  alternateSetting: number;
+  endpointNumber: number;
+} | null {
+  const interfaces = device.configuration?.interfaces || [];
+
+  // Pass 1: Standard USB Printer Class (bInterfaceClass === 7)
+  for (const iface of interfaces) {
+    for (const alt of iface.alternates || []) {
+      if (alt.interfaceClass === 7) {
+        const ep =
+          alt.endpoints.find((e) => e.direction === 'out' && e.type === 'bulk') ||
+          alt.endpoints.find((e) => e.direction === 'out');
+        if (ep) {
+          return {
+            interfaceNumber: iface.interfaceNumber,
+            alternateSetting: alt.alternateSetting,
+            endpointNumber: ep.endpointNumber,
+          };
+        }
+      }
+    }
+  }
+
+  // Pass 2: Any interface exposing a bulk-out endpoint (ESC/POS vendor-specific)
+  for (const iface of interfaces) {
+    for (const alt of iface.alternates || []) {
+      const bulkOut = alt.endpoints.find((e) => e.direction === 'out' && e.type === 'bulk');
+      if (bulkOut) {
+        return {
+          interfaceNumber: iface.interfaceNumber,
+          alternateSetting: alt.alternateSetting,
+          endpointNumber: bulkOut.endpointNumber,
+        };
+      }
+    }
+  }
+
+  // Pass 3: Interrupt-out fallback
+  for (const iface of interfaces) {
+    for (const alt of iface.alternates || []) {
+      const intOut = alt.endpoints.find((e) => e.direction === 'out' && e.type === 'interrupt');
+      if (intOut) {
+        return {
+          interfaceNumber: iface.interfaceNumber,
+          alternateSetting: alt.alternateSetting,
+          endpointNumber: intOut.endpointNumber,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildUsbPrinterLabel(device: WebUSBDevice): string {
+  const named = [device.manufacturerName, device.productName].filter(Boolean).join(' ').trim();
+  if (named) return named;
+  if (device.vendorId !== undefined) {
+    const vid = device.vendorId.toString(16).padStart(4, '0').toUpperCase();
+    const pid = (device.productId || 0).toString(16).padStart(4, '0').toUpperCase();
+    return `USB Printer (${vid}:${pid})`;
+  }
+  return 'USB Thermal Printer';
+}
+
+async function openUsbPrinterDevice(
+  device: WebUSBDevice,
+  options: { silent?: boolean; notifyCable?: boolean } = {}
+): Promise<{ ok: boolean; label?: string; error?: string }> {
+  try {
+    if (!device.opened) {
+      await device.open();
+    }
+    if (device.configuration === null) {
+      await device.selectConfiguration(1);
+    }
+
+    const match = findUsbPrinterEndpoint(device);
+    if (!match) {
+      if (device.opened) {
+        try {
+          await device.close();
+        } catch {}
+      }
+      return {
+        ok: false,
+        error: 'Selected USB device does not expose a driverless printer output endpoint.',
+      };
+    }
+
+    await device.claimInterface(match.interfaceNumber);
+    if (match.alternateSetting !== 0 && device.selectAlternateInterface) {
+      try {
+        await device.selectAlternateInterface(match.interfaceNumber, match.alternateSetting);
+      } catch {}
+    }
+
+    activeUsbPrinter = device;
+    activeUsbOutEndpoint = match.endpointNumber;
+    const label = buildUsbPrinterLabel(device);
+    usbPrinterLabel = label;
+
+    if (device.vendorId !== undefined && device.productId !== undefined) {
+      saveRememberedUsbPrinter({
+        vendorId: device.vendorId,
+        productId: device.productId,
+        serialNumber: device.serialNumber,
+        label,
+      });
+    }
+
+    if (!options.silent) {
+      saveHardwareConfig({ receiptPrinterMode: 'escpos-usb' });
+    }
+    appendHardwareLog('printer', 'Driverless USB Printer Ready', label);
+    if (options.notifyCable) {
+      playHardwareBeep('success');
+      emitPrinterCableEvent({ action: 'connected', transport: 'usb', label });
+    }
+    emitHardwareChange();
+    return { ok: true, label };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to connect USB printer';
+    const isClaimError =
+      /claim|access denied|protected|busy|security/i.test(msg);
+    return {
+      ok: false,
+      error: isClaimError
+        ? `${msg}. Your OS may have locked this USB port—try "Detect Serial/COM Cable" instead or unplug/replug.`
+        : msg,
+    };
+  }
+}
+
 export async function connectUsbPrinter(): Promise<{ ok: boolean; label?: string; error?: string }> {
   const usb = getUsbApi();
   if (!usb) {
@@ -432,40 +706,7 @@ export async function connectUsbPrinter(): Promise<{ ok: boolean; label?: string
 
   try {
     const device = await usb.requestDevice({ filters: [] });
-    await device.open();
-    if (device.configuration === null) {
-      await device.selectConfiguration(1);
-    }
-
-    let claimedInterface: number | null = null;
-    let outEndpoint: number | null = null;
-
-    for (const iface of device.configuration?.interfaces || []) {
-      for (const alt of iface.alternates || []) {
-        const bulkOut = alt.endpoints.find((ep) => ep.direction === 'out' && ep.type === 'bulk');
-        if (bulkOut) {
-          claimedInterface = iface.interfaceNumber;
-          outEndpoint = bulkOut.endpointNumber;
-          break;
-        }
-      }
-      if (claimedInterface !== null) break;
-    }
-
-    if (claimedInterface === null || outEndpoint === null) {
-      await device.close();
-      return { ok: false, error: 'Selected USB device does not expose an ESC/POS bulk-out print endpoint.' };
-    }
-
-    await device.claimInterface(claimedInterface);
-    activeUsbPrinter = device;
-    activeUsbOutEndpoint = outEndpoint;
-    usbPrinterLabel = [device.manufacturerName, device.productName].filter(Boolean).join(' ') || 'USB Thermal Printer';
-
-    saveHardwareConfig({ receiptPrinterMode: 'escpos-usb' });
-    appendHardwareLog('printer', 'USB Thermal Printer Paired', usbPrinterLabel);
-    emitHardwareChange();
-    return { ok: true, label: usbPrinterLabel };
+    return await openUsbPrinterDevice(device);
   } catch (err) {
     return {
       ok: false,
@@ -491,9 +732,178 @@ export async function sendEscPosUsb(bytes: Uint8Array): Promise<boolean> {
   if (!activeUsbPrinter || !activeUsbPrinter.opened || activeUsbOutEndpoint === null) {
     return false;
   }
-  const copy = new Uint8Array(bytes);
-  await activeUsbPrinter.transferOut(activeUsbOutEndpoint, copy.buffer);
+  const chunkSize = 512;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const slice = bytes.slice(offset, offset + chunkSize);
+    await activeUsbPrinter.transferOut(activeUsbOutEndpoint, slice.buffer);
+  }
   return true;
+}
+
+// --- Automatic Plug-and-Print Cable Recognition ---
+export async function reconnectKnownPrinters(notifyCable = false): Promise<{
+  connected: boolean;
+  transport: 'usb' | 'serial' | null;
+  label: string | null;
+}> {
+  const cfg = getHardwareConfig();
+  const remembered = getRememberedPrinters();
+  let count = 0;
+
+  // 1. Check already-authorized USB devices currently plugged in
+  const usb = getUsbApi();
+  if (usb?.getDevices) {
+    try {
+      const devices = await usb.getDevices();
+      count += devices.length;
+      if (activeUsbPrinter?.opened && usbPrinterLabel) {
+        knownAuthorizedPrinterCount = count;
+        return { connected: true, transport: 'usb', label: usbPrinterLabel };
+      }
+
+      if (cfg.autoConnectPrinters && devices.length > 0) {
+        // Prefer previously remembered printer VID/PID, otherwise first USB device with printer endpoint
+        const prioritized = [...devices].sort((a, b) => {
+          const aMatch = remembered.usb.some(
+            (r) => r.vendorId === a.vendorId && r.productId === a.productId
+          )
+            ? 0
+            : 1;
+          const bMatch = remembered.usb.some(
+            (r) => r.vendorId === b.vendorId && r.productId === b.productId
+          )
+            ? 0
+            : 1;
+          return aMatch - bMatch;
+        });
+
+        for (const dev of prioritized) {
+          const res = await openUsbPrinterDevice(dev, { notifyCable });
+          if (res.ok && res.label) {
+            knownAuthorizedPrinterCount = count;
+            return { connected: true, transport: 'usb', label: res.label };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Check already-authorized Serial / USB-Serial printer ports
+  const serial = getSerialApi();
+  if (serial?.getPorts) {
+    try {
+      const ports = await serial.getPorts();
+      count += ports.length;
+      if (activeSerialPrinter?.writable && serialPrinterLabel) {
+        knownAuthorizedPrinterCount = count;
+        return { connected: true, transport: 'serial', label: serialPrinterLabel };
+      }
+
+      if (cfg.autoConnectPrinters && ports.length > 0) {
+        for (const port of ports) {
+          // Skip port if it is already used as the serial barcode scanner
+          if (activeSerialScanner && port === activeSerialScanner) continue;
+          const info = port.getInfo?.();
+          const saved = remembered.serial.find(
+            (r) => r.usbVendorId === info?.usbVendorId && r.usbProductId === info?.usbProductId
+          );
+          const baudRate = saved?.baudRate || cfg.serialPrinterBaudRate || 9600;
+          const res = await openSerialPrinterPort(port, baudRate, { notifyCable });
+          if (res.ok && res.label) {
+            knownAuthorizedPrinterCount = count;
+            return { connected: true, transport: 'serial', label: res.label };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  knownAuthorizedPrinterCount = count;
+  emitHardwareChange();
+  return { connected: false, transport: null, label: null };
+}
+
+export async function connectPluggedPrinter(
+  preferredTransport?: 'usb' | 'serial'
+): Promise<{ ok: boolean; transport?: 'usb' | 'serial'; label?: string; error?: string }> {
+  // First check if an authorized cable is already plugged in
+  const autoRes = await reconnectKnownPrinters(false);
+  if (autoRes.connected && autoRes.label && autoRes.transport) {
+    if (!preferredTransport || preferredTransport === autoRes.transport) {
+      return { ok: true, transport: autoRes.transport, label: autoRes.label };
+    }
+  }
+
+  const target = preferredTransport || (getUsbApi() ? 'usb' : 'serial');
+  if (target === 'usb') {
+    const res = await connectUsbPrinter();
+    if (res.ok) return { ok: true, transport: 'usb', label: res.label };
+    return { ok: false, error: res.error };
+  }
+
+  const serialRes = await connectSerialPrinter();
+  if (serialRes.ok) return { ok: true, transport: 'serial', label: serialRes.label };
+  return { ok: false, error: serialRes.error };
+}
+
+export function initDriverlessPrinterAutoDetect(): void {
+  if (typeof window === 'undefined' || autoDetectInitialized) return;
+  autoDetectInitialized = true;
+
+  // Initial scan of any printer cable plugged in before app loaded
+  void reconnectKnownPrinters(false);
+
+  const usb = getUsbApi();
+  if (usb?.addEventListener) {
+    usb.addEventListener('connect', (ev) => {
+      if (!getHardwareConfig().autoConnectPrinters) return;
+      const dev = ev.device;
+      if (dev) {
+        void openUsbPrinterDevice(dev, { notifyCable: true });
+      } else {
+        void reconnectKnownPrinters(true);
+      }
+    });
+
+    usb.addEventListener('disconnect', (ev) => {
+      const dev = ev.device;
+      if (activeUsbPrinter && (!dev || dev === activeUsbPrinter)) {
+        const prevLabel = usbPrinterLabel || 'USB Thermal Printer';
+        activeUsbPrinter = null;
+        activeUsbOutEndpoint = null;
+        usbPrinterLabel = null;
+        appendHardwareLog('printer', 'USB Printer Cable Unplugged', prevLabel);
+        emitPrinterCableEvent({ action: 'disconnected', transport: 'usb', label: prevLabel });
+        emitHardwareChange();
+      }
+    });
+  }
+
+  const serial = getSerialApi();
+  if (serial?.addEventListener) {
+    serial.addEventListener('connect', (ev) => {
+      if (!getHardwareConfig().autoConnectPrinters) return;
+      const port = ev.target as unknown as WebSerialPort | undefined;
+      if (port && port !== activeSerialScanner) {
+        const baudRate = getHardwareConfig().serialPrinterBaudRate || 9600;
+        void openSerialPrinterPort(port, baudRate, { notifyCable: true });
+      } else {
+        void reconnectKnownPrinters(true);
+      }
+    });
+
+    serial.addEventListener('disconnect', (ev) => {
+      const port = ev.target as unknown as WebSerialPort | undefined;
+      if (activeSerialPrinter && (!port || port === activeSerialPrinter)) {
+        const prevLabel = serialPrinterLabel || 'Serial Thermal Printer';
+        activeSerialPrinter = null;
+        serialPrinterLabel = null;
+        appendHardwareLog('printer', 'Serial Printer Cable Unplugged', prevLabel);
+        emitPrinterCableEvent({ action: 'disconnected', transport: 'serial', label: prevLabel });
+        emitHardwareChange();
+      }
+    });
+  }
 }
 
 // --- Serial Barcode Scanner Listener ---
@@ -577,44 +987,6 @@ export async function disconnectSerialScanner(): Promise<void> {
     appendHardwareLog('scanner', 'Serial Scanner Disconnected', 'Port closed');
     emitHardwareChange();
   }
-}
-
-// --- Cash Drawer Kick ---
-export async function openCashDrawer(reason = 'Manual drawer open'): Promise<{
-  sentToHardware: boolean;
-  message: string;
-}> {
-  const cfg = getHardwareConfig();
-  if (!cfg.cashDrawerEnabled) {
-    return { sentToHardware: false, message: 'Cash drawer integration is disabled in Hardware settings.' };
-  }
-
-  const kickBytes = buildCashDrawerKickBytes(cfg.cashDrawerPin);
-  let sentToHardware = false;
-
-  try {
-    if (activeUsbPrinter?.opened) {
-      sentToHardware = await sendEscPosUsb(kickBytes);
-    } else if (activeSerialPrinter?.writable) {
-      sentToHardware = await sendEscPosSerial(kickBytes);
-    }
-  } catch (err) {
-    console.warn('Cash drawer kick hardware error:', err);
-  }
-
-  playHardwareBeep('drawer');
-  appendHardwareLog(
-    'drawer',
-    sentToHardware ? 'Cash Drawer Kicked (ESC/POS)' : 'Cash Drawer Triggered (Software)',
-    `${reason} · Pin ${cfg.cashDrawerPin === 0 ? '2' : '5'}`
-  );
-
-  return {
-    sentToHardware,
-    message: sentToHardware
-      ? `Cash drawer kick pulse sent (Pin ${cfg.cashDrawerPin === 0 ? '2' : '5'}).`
-      : 'Drawer event logged. Connect a USB/Serial ESC/POS receipt printer in Hardware Settings to kick the physical RJ11 drawer.',
-  };
 }
 
 // --- Thermal Receipt Printing (ESC/POS + 58mm/80mm Print HTML) ---
@@ -714,28 +1086,55 @@ export async function printThermalReceipt(transaction: TransactionWithItems): Pr
   method: 'escpos-usb' | 'escpos-serial' | 'browser-print' | 'download';
   message: string;
 }> {
-  const cfg = getHardwareConfig();
+  let cfg = getHardwareConfig();
 
-  // Direct ESC/POS over WebUSB or Web Serial if paired
-  if (cfg.receiptPrinterMode === 'escpos-usb' && activeUsbPrinter?.opened) {
+  // Auto-recognize any already-authorized plugged-in printer cable before printing
+  if (!activeUsbPrinter?.opened && !activeSerialPrinter?.writable && cfg.autoConnectPrinters) {
+    await reconnectKnownPrinters(false);
+    cfg = getHardwareConfig();
+  }
+
+  // Always prefer a live plugged-in driverless USB or Serial cable printer first
+  if (activeUsbPrinter?.opened) {
     try {
       const bytes = buildEscPosReceiptBytes(transaction, cfg);
       await sendEscPosUsb(bytes);
-      appendHardwareLog('printer', 'ESC/POS USB Receipt Printed', transaction.transaction_number);
-      return { method: 'escpos-usb', message: `Receipt ${transaction.transaction_number} printed via USB thermal printer.` };
+      appendHardwareLog(
+        'printer',
+        'Driverless USB Receipt Printed',
+        `${transaction.transaction_number} · ${usbPrinterLabel || 'USB Printer'}`
+      );
+      return {
+        method: 'escpos-usb',
+        message: `Printed ${transaction.transaction_number} directly to ${usbPrinterLabel || 'USB printer'} (no OS driver needed).`,
+      };
     } catch (err) {
       console.warn('USB print failed, falling back to browser print:', err);
+      activeUsbPrinter = null;
+      activeUsbOutEndpoint = null;
+      usbPrinterLabel = null;
+      emitHardwareChange();
     }
   }
 
-  if (cfg.receiptPrinterMode === 'escpos-serial' && activeSerialPrinter?.writable) {
+  if (activeSerialPrinter?.writable) {
     try {
       const bytes = buildEscPosReceiptBytes(transaction, cfg);
       await sendEscPosSerial(bytes);
-      appendHardwareLog('printer', 'ESC/POS Serial Receipt Printed', transaction.transaction_number);
-      return { method: 'escpos-serial', message: `Receipt ${transaction.transaction_number} printed via Serial thermal printer.` };
+      appendHardwareLog(
+        'printer',
+        'Driverless Serial Receipt Printed',
+        `${transaction.transaction_number} · ${serialPrinterLabel || 'Serial Printer'}`
+      );
+      return {
+        method: 'escpos-serial',
+        message: `Printed ${transaction.transaction_number} directly to ${serialPrinterLabel || 'Serial printer'} (no OS driver needed).`,
+      };
     } catch (err) {
       console.warn('Serial print failed, falling back to browser print:', err);
+      activeSerialPrinter = null;
+      serialPrinterLabel = null;
+      emitHardwareChange();
     }
   }
 
@@ -787,6 +1186,27 @@ export async function printThermalReceipt(transaction: TransactionWithItems): Pr
   URL.revokeObjectURL(url);
   appendHardwareLog('printer', `Thermal Receipt Downloaded (${width})`, transaction.transaction_number);
   return { method: 'download', message: `Downloaded ${width} thermal receipt file.` };
+}
+
+export async function connectAndPrintReceipt(
+  transaction: TransactionWithItems,
+  preferredTransport?: 'usb' | 'serial'
+): Promise<{
+  ok: boolean;
+  message: string;
+}> {
+  if (!activeUsbPrinter?.opened && !activeSerialPrinter?.writable) {
+    const conn = await connectPluggedPrinter(preferredTransport);
+    if (!conn.ok) {
+      return { ok: false, message: conn.error || 'No printer cable connected.' };
+    }
+  }
+
+  const res = await printThermalReceipt(transaction);
+  return {
+    ok: res.method === 'escpos-usb' || res.method === 'escpos-serial',
+    message: res.message,
+  };
 }
 
 // --- MSR / USB Card Reader Track Parser (never stores raw PAN/CVV) ---
@@ -966,7 +1386,7 @@ export function createSampleReceiptTransaction(config: HardwareConfig = getHardw
     total_amount: 16.0,
     payment_method: 'cash',
     status: 'completed',
-    notes: 'Test thermal alignment & drawer check',
+    notes: 'Test thermal receipt alignment',
     created_at: new Date().toISOString(),
     items: [
       {

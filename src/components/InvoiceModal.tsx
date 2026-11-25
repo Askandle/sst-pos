@@ -10,9 +10,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Monitor, Printer, User, Phone, Receipt, Download, ReceiptText } from 'lucide-react';
+import { Monitor, Printer, User, Phone, Receipt, Download, ReceiptText, Usb, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { printThermalReceipt } from '@/lib/hardware';
+import { printThermalReceipt, connectAndPrintReceipt } from '@/lib/hardware';
+import { useHardwareState } from '@/hooks/useBarcodeScanner';
 
 interface InvoiceModalProps {
   transaction: TransactionWithItems | null;
@@ -335,6 +336,9 @@ export default function InvoiceModal({
   onOpenChange,
   footerActions,
 }: InvoiceModalProps) {
+  const { runtime } = useHardwareState();
+  const [isConnectingPrint, setIsConnectingPrint] = React.useState(false);
+
   if (!transaction) return null;
 
   const handlePrint = () => {
@@ -381,6 +385,20 @@ export default function InvoiceModal({
     toast.success(res.message);
   };
 
+  const handleDirectCablePrint = async () => {
+    setIsConnectingPrint(true);
+    try {
+      const res = await connectAndPrintReceipt(transaction);
+      if (res.ok) {
+        toast.success(res.message);
+      } else {
+        toast.error(res.message);
+      }
+    } finally {
+      setIsConnectingPrint(false);
+    }
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -397,6 +415,18 @@ export default function InvoiceModal({
 
           <InvoiceSheet transaction={transaction} />
 
+          {runtime.activePrinterTransport && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200">
+              <span className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                Driverless Cable Ready: {runtime.activePrinterLabel}
+              </span>
+              <span className="font-mono uppercase text-[11px] opacity-80">
+                {runtime.activePrinterTransport} · No OS driver
+              </span>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
             {footerActions}
             <Button
@@ -408,6 +438,18 @@ export default function InvoiceModal({
               <Download className="mr-2 h-4 w-4" />
               Download Invoice
             </Button>
+            {!runtime.activePrinterTransport && (runtime.usbSupported || runtime.serialSupported) && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isConnectingPrint}
+                onClick={handleDirectCablePrint}
+                className="cursor-pointer border-indigo-500/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10"
+              >
+                <Usb className="mr-2 h-4 w-4" />
+                {isConnectingPrint ? 'Connecting...' : 'Plug & Print (No Driver)'}
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -415,7 +457,7 @@ export default function InvoiceModal({
               className="cursor-pointer border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10"
             >
               <ReceiptText className="mr-2 h-4 w-4" />
-              Thermal Receipt
+              {runtime.activePrinterTransport ? 'Print Direct (Cable)' : 'Thermal Receipt'}
             </Button>
             <Button
               type="button"

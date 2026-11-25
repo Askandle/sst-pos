@@ -7,9 +7,9 @@ import {
   disconnectSerialPrinter,
   connectUsbPrinter,
   disconnectUsbPrinter,
+  reconnectKnownPrinters,
   connectSerialScanner,
   disconnectSerialScanner,
-  openCashDrawer,
   printThermalReceipt,
   createSampleReceiptTransaction,
   parseCardTrackData,
@@ -38,7 +38,6 @@ import {
   Printer,
   ScanBarcode,
   CreditCard,
-  Inbox,
   Usb,
   Cable,
   Maximize2,
@@ -46,6 +45,7 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -92,11 +92,22 @@ export default function HardwarePage() {
   };
 
   const handlePairSerialPrinter = async () => {
-    const res = await connectSerialPrinter(9600);
+    const res = await connectSerialPrinter(config.serialPrinterBaudRate);
     if (res.ok) {
-      toast.success(`Paired Serial printer: ${res.label}`);
+      toast.success(`Paired driverless Serial printer: ${res.label}`);
     } else {
       toast.error(res.error || 'Could not pair Serial printer');
+    }
+  };
+
+  const handleScanCables = async () => {
+    const res = await reconnectKnownPrinters(true);
+    if (res.connected && res.label) {
+      toast.success(`Recognized plugged cable: ${res.label}`);
+    } else {
+      toast.info(
+        'No previously authorized cable detected. Click "Detect USB Cable" or "Detect Serial/COM Cable" once to authorize your printer.'
+      );
     }
   };
 
@@ -122,15 +133,6 @@ export default function HardwarePage() {
     const sample = createSampleReceiptTransaction(config);
     const res = await printThermalReceipt(sample);
     toast.success(res.message);
-  };
-
-  const handleTestDrawer = async () => {
-    const res = await openCashDrawer('Hardware console test');
-    if (res.sentToHardware) {
-      toast.success(res.message);
-    } else {
-      toast.info(res.message);
-    }
   };
 
   const handleTestBarcodeSubmit = (e: React.FormEvent) => {
@@ -174,7 +176,7 @@ export default function HardwarePage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">POS Hardware &amp; Terminals</h1>
           <p className="text-muted-foreground">
-            Configure terminals, barcode scanners, thermal receipt printers, cash drawers, and card readers
+            Configure terminals, barcode scanners, thermal receipt printers, and card readers
           </p>
         </div>
 
@@ -191,16 +193,6 @@ export default function HardwarePage() {
               <Maximize2 className="h-4 w-4 mr-2" />
             )}
             {isFullscreen ? 'Exit Fullscreen' : 'Terminal Fullscreen'}
-          </Button>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleTestDrawer}
-            className="rounded-xl border-2 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Inbox className="h-4 w-4 mr-2" />
-            Open Cash Drawer
           </Button>
 
           <Button
@@ -254,7 +246,7 @@ export default function HardwarePage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Terminal Keyboard Shortcuts</p>
                 <p className="text-xs text-muted-foreground">
-                  F2 Focus Scanner · F4 Checkout · F8 Open Drawer · F9 Complete Sale
+                  F2 Focus Scanner · F4 Checkout · F9 Complete Sale
                 </p>
               </div>
               <Switch
@@ -265,7 +257,7 @@ export default function HardwarePage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+            <div className="grid grid-cols-3 gap-2 pt-1 text-xs">
               <div className="rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2">
                 <span className="font-mono font-bold text-foreground">F2</span>
                 <p className="text-muted-foreground mt-0.5">Focus Scan</p>
@@ -275,10 +267,6 @@ export default function HardwarePage() {
                 <p className="text-muted-foreground mt-0.5">Checkout</p>
               </div>
               <div className="rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2">
-                <span className="font-mono font-bold text-foreground">F8</span>
-                <p className="text-muted-foreground mt-0.5">Kick Drawer</p>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-muted/40 px-2.5 py-2">
                 <span className="font-mono font-bold text-foreground">F9</span>
                 <p className="text-muted-foreground mt-0.5">Pay &amp; Finish</p>
               </div>
@@ -286,21 +274,53 @@ export default function HardwarePage() {
           </CardContent>
         </Card>
 
-        {/* 2. Thermal Receipt Printer */}
+        {/* 2. Driverless Receipt Printer */}
         <Card className="border-2 border-indigo-500/30 dark:border-indigo-400/25 rounded-xl shadow-xs">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Printer className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-              Receipt Printer (Thermal &amp; ESC/POS)
+              Driverless Receipt Printer (Plug &amp; Print)
             </CardTitle>
             <CardDescription>
-              Print 58mm or 80mm thermal receipts via OS print driver, WebUSB, or Web Serial
+              Plug in a USB or USB-Serial thermal printer cable and print directly without installing OS printer drivers
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Live Cable Connection Status */}
+            <div
+              className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-xs ${
+                runtime.activePrinterTransport
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                  : 'border-border/70 bg-muted/40 text-muted-foreground'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {runtime.activePrinterTransport ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                ) : (
+                  <Usb className="h-4 w-4 shrink-0" />
+                )}
+                <span className="font-medium truncate">
+                  {runtime.activePrinterTransport
+                    ? `Cable Connected: ${runtime.activePrinterLabel} (${runtime.activePrinterTransport.toUpperCase()} · Ready)`
+                    : 'No printer cable active yet — plug in cable & detect below'}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleScanCables}
+                className="h-7 px-2 text-xs cursor-pointer shrink-0"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Scan Cables
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="printer-mode">Printer Output Mode</Label>
+                <Label htmlFor="printer-mode">Output Mode</Label>
                 <Select
                   value={config.receiptPrinterMode}
                   onValueChange={(value) =>
@@ -311,10 +331,10 @@ export default function HardwarePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="browser-80mm">System Driver · 80mm Thermal</SelectItem>
-                    <SelectItem value="browser-58mm">System Driver · 58mm Thermal</SelectItem>
-                    <SelectItem value="escpos-usb">Direct ESC/POS · WebUSB</SelectItem>
-                    <SelectItem value="escpos-serial">Direct ESC/POS · Web Serial</SelectItem>
+                    <SelectItem value="escpos-usb">Driverless USB (WebUSB)</SelectItem>
+                    <SelectItem value="escpos-serial">Driverless Serial (Web Serial)</SelectItem>
+                    <SelectItem value="browser-80mm">System Print · 80mm</SelectItem>
+                    <SelectItem value="browser-58mm">System Print · 58mm</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -331,8 +351,30 @@ export default function HardwarePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="80mm">80mm (48 columns)</SelectItem>
-                    <SelectItem value="58mm">58mm (32 columns)</SelectItem>
+                    <SelectItem value="80mm">80mm (48 cols)</SelectItem>
+                    <SelectItem value="58mm">58mm (32 cols)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="serial-baud">Serial Baud Rate</Label>
+                <Select
+                  value={String(config.serialPrinterBaudRate)}
+                  onValueChange={(value) =>
+                    saveHardwareConfig({
+                      serialPrinterBaudRate: Number(value) as 9600 | 19200 | 38400 | 115200,
+                    })
+                  }
+                >
+                  <SelectTrigger id="serial-baud">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="9600">9600 baud (Standard)</SelectItem>
+                    <SelectItem value="19200">19200 baud</SelectItem>
+                    <SelectItem value="38400">38400 baud</SelectItem>
+                    <SelectItem value="115200">115200 baud (High Speed)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -348,17 +390,34 @@ export default function HardwarePage() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4 py-2 border-t border-border/60">
-              <div>
-                <p className="text-sm font-medium text-foreground">Auto-Print Receipt After Sale</p>
-                <p className="text-xs text-muted-foreground">
-                  Automatically sends receipt when checkout completes
-                </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Auto-Recognize Cable</p>
+                  <p className="text-xs text-muted-foreground">
+                    Connects automatically on plug-in
+                  </p>
+                </div>
+                <Switch
+                  checked={config.autoConnectPrinters}
+                  onCheckedChange={(checked) =>
+                    saveHardwareConfig({ autoConnectPrinters: checked })
+                  }
+                />
               </div>
-              <Switch
-                checked={config.autoPrintReceipt}
-                onCheckedChange={(checked) => saveHardwareConfig({ autoPrintReceipt: checked })}
-              />
+
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Auto-Print After Sale</p>
+                  <p className="text-xs text-muted-foreground">
+                    Sends receipt when checkout finishes
+                  </p>
+                </div>
+                <Switch
+                  checked={config.autoPrintReceipt}
+                  onCheckedChange={(checked) => saveHardwareConfig({ autoPrintReceipt: checked })}
+                />
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -383,7 +442,7 @@ export default function HardwarePage() {
                   className="rounded-lg cursor-pointer"
                 >
                   <Usb className="h-3.5 w-3.5 mr-1.5" />
-                  Pair USB Printer
+                  Detect USB Cable (No Driver)
                 </Button>
               )}
 
@@ -408,7 +467,7 @@ export default function HardwarePage() {
                   className="rounded-lg cursor-pointer"
                 >
                   <Cable className="h-3.5 w-3.5 mr-1.5" />
-                  Pair Serial Printer
+                  Detect Serial/COM Cable
                 </Button>
               )}
 
@@ -423,12 +482,14 @@ export default function HardwarePage() {
               </Button>
             </div>
 
-            {!runtime.usbSupported && !runtime.serialSupported && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                Use Chrome or Edge on desktop for direct WebUSB/Serial; OS System Driver print works on all browsers.
-              </p>
-            )}
+            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                {!runtime.usbSupported && !runtime.serialSupported
+                  ? 'Use Chrome or Edge on desktop for driverless USB/Serial plug-and-print.'
+                  : 'First-time cables require one-click browser confirmation above; after that, plugging in the cable automatically reconnects and prints with no OS printer driver.'}
+              </span>
+            </p>
           </CardContent>
         </Card>
 
@@ -523,62 +584,32 @@ export default function HardwarePage() {
           </CardContent>
         </Card>
 
-        {/* 4. Cash Drawer & Card Reader / Payment Terminal */}
+        {/* 4. Card Reader & Payment Terminal */}
         <Card className="border-2 border-amber-500/30 dark:border-amber-400/25 rounded-xl shadow-xs">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              Cash Drawer &amp; Card Reader
+              Card Reader &amp; Payment Terminal
             </CardTitle>
             <CardDescription>
-              RJ11 cash drawer pulse control and USB/Network card reader integration
+              USB swipe/tap reader and local network EFTPOS terminal integration
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-foreground">Enable Cash Drawer Integration</p>
+                <p className="text-sm font-medium text-foreground">Enable Card Reader Integration</p>
                 <p className="text-xs text-muted-foreground">
-                  Sends ESC/POS drawer kick pulse via paired printer
+                  Show swipe/tap &amp; EFTPOS controls during Card checkout
                 </p>
               </div>
               <Switch
-                checked={config.cashDrawerEnabled}
-                onCheckedChange={(checked) => saveHardwareConfig({ cashDrawerEnabled: checked })}
+                checked={config.cardReaderEnabled}
+                onCheckedChange={(checked) => saveHardwareConfig({ cardReaderEnabled: checked })}
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-              <div className="space-y-2">
-                <Label htmlFor="drawer-pin">RJ11 Kick Pin</Label>
-                <Select
-                  value={String(config.cashDrawerPin)}
-                  onValueChange={(v) =>
-                    saveHardwareConfig({ cashDrawerPin: Number(v) === 1 ? 1 : 0 })
-                  }
-                >
-                  <SelectTrigger id="drawer-pin">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">Pin 2 (Standard Epson/Star)</SelectItem>
-                    <SelectItem value="1">Pin 5 (Secondary Drawer)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                <span className="text-xs font-medium">Auto-Open on Cash Sale</span>
-                <Switch
-                  checked={config.autoOpenDrawerOnCash}
-                  onCheckedChange={(checked) =>
-                    saveHardwareConfig({ autoOpenDrawerOnCash: checked })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-border/60 space-y-3">
+            <div className="space-y-3 pt-2 border-t border-border/60">
               <div className="space-y-2">
                 <Label htmlFor="card-terminal-mode">Card Reader / Terminal Mode</Label>
                 <Select
@@ -644,7 +675,7 @@ export default function HardwarePage() {
           <div>
             <CardTitle className="text-base">Hardware Activity Log</CardTitle>
             <CardDescription>
-              Real-time record of barcode scans, thermal receipt prints, card terminal reads, and drawer kicks
+              Real-time record of barcode scans, thermal receipt prints, and card terminal reads
             </CardDescription>
           </div>
           {logs.length > 0 && (

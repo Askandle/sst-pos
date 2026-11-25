@@ -8,7 +8,6 @@ import BarcodeScanControl from '@/components/BarcodeScanControl';
 import { useBarcodeScanner, useHardwareState } from '@/hooks/useBarcodeScanner';
 import {
   addProductByBarcodeToCart,
-  openCashDrawer,
   printThermalReceipt,
   parseCardTrackData,
   sendCardTerminalRequest,
@@ -31,7 +30,6 @@ import {
   Phone,
   Printer,
   CheckCircle2,
-  Inbox,
   Terminal,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -98,15 +96,6 @@ export default function CheckoutPage() {
     enabled: !invoiceOpen,
     onScan: handleBarcodeScan,
   });
-
-  const handleOpenCashDrawer = useCallback(async () => {
-    const res = await openCashDrawer(`Checkout (${hardwareConfig.terminalId})`);
-    if (res.sentToHardware) {
-      toast.success(res.message);
-    } else {
-      toast.info(res.message);
-    }
-  }, [hardwareConfig.terminalId]);
 
   const removeFromCart = (index: number) => {
     const updatedCart = cart.filter((_, i) => i !== index);
@@ -206,14 +195,6 @@ export default function CheckoutPage() {
       setInvoiceOpen(true);
       toast.success('Transaction completed! Invoice is ready to print.');
 
-      if (
-        paymentMethod === 'cash' &&
-        hardwareConfig.cashDrawerEnabled &&
-        hardwareConfig.autoOpenDrawerOnCash
-      ) {
-        void openCashDrawer(`Cash sale ${newTxn.transaction_number}`);
-      }
-
       if (hardwareConfig.autoPrintReceipt) {
         void printThermalReceipt(newTxn).then((printRes) => {
           toast.info(printRes.message);
@@ -234,9 +215,6 @@ export default function CheckoutPage() {
       if (e.key === 'F2') {
         e.preventDefault();
         scanInputRef.current?.focus();
-      } else if (e.key === 'F8') {
-        e.preventDefault();
-        void handleOpenCashDrawer();
       } else if (e.key === 'F9' && cart.length > 0 && !isProcessing) {
         e.preventDefault();
         void handleCheckout();
@@ -245,7 +223,7 @@ export default function CheckoutPage() {
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [hardwareConfig.terminalShortcutsEnabled, cart.length, isProcessing, handleOpenCashDrawer]);
+  }, [hardwareConfig.terminalShortcutsEnabled, cart.length, isProcessing]);
 
   const handleCardSwipeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
@@ -303,15 +281,6 @@ export default function CheckoutPage() {
               Terminal: <span className="font-mono font-semibold text-foreground">{hardwareConfig.terminalId}</span> · Scan a product barcode or add items to begin
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleOpenCashDrawer}
-            className="rounded-xl cursor-pointer shrink-0"
-          >
-            <Inbox className="mr-2 h-4 w-4" />
-            Open Cash Drawer (F8)
-          </Button>
         </div>
 
         <div className="glass-surface glass-section rounded-2xl border border-slate-200/80 dark:border-white/15 p-3">
@@ -408,15 +377,6 @@ export default function CheckoutPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleOpenCashDrawer}
-            className="rounded-xl cursor-pointer"
-          >
-            <Inbox className="mr-2 h-4 w-4" />
-            Open Drawer (F8)
-          </Button>
           <Button variant="outline" onClick={clearCart} className="rounded-xl cursor-pointer">
             <Trash2 className="mr-2 h-4 w-4" />
             Clear Cart

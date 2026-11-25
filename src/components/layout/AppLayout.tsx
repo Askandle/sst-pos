@@ -3,9 +3,12 @@ import { Outlet } from 'react-router-dom';
 import { toast } from 'sonner';
 import Navbar from './Navbar';
 import OfflineStatusBanner from '@/components/OfflineStatusBanner';
+import { initDriverlessPrinterAutoDetect } from '@/lib/hardware';
 
 export default function AppLayout() {
   useEffect(() => {
+    initDriverlessPrinterAutoDetect();
+
     const handleSyncCompleted = (e: Event) => {
       const detail = (e as CustomEvent<{ synced?: number; failed?: number }>).detail;
       if (detail && detail.synced && detail.synced > 0) {
@@ -15,8 +18,30 @@ export default function AppLayout() {
       }
     };
 
+    const handlePrinterCableEvent = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{
+          action?: 'connected' | 'disconnected';
+          transport?: 'usb' | 'serial';
+          label?: string;
+        }>
+      ).detail;
+      if (!detail) return;
+      if (detail.action === 'connected') {
+        toast.success(
+          `Printer cable recognized: ${detail.label || 'Thermal Printer'} — ready to print without OS drivers.`
+        );
+      } else if (detail.action === 'disconnected') {
+        toast.info(`Printer cable unplugged: ${detail.label || 'Printer'}`);
+      }
+    };
+
     window.addEventListener('offline-sync-completed', handleSyncCompleted);
-    return () => window.removeEventListener('offline-sync-completed', handleSyncCompleted);
+    window.addEventListener('printer-cable-event', handlePrinterCableEvent);
+    return () => {
+      window.removeEventListener('offline-sync-completed', handleSyncCompleted);
+      window.removeEventListener('printer-cable-event', handlePrinterCableEvent);
+    };
   }, []);
 
   return (
