@@ -298,7 +298,8 @@ export function clearHardwareLogs(): void {
 
 export function getHardwareRuntimeState(): HardwareRuntimeState {
   const cameraBarcodeSupported =
-    typeof window !== 'undefined' && 'BarcodeDetector' in window;
+    typeof window !== 'undefined' &&
+    ('BarcodeDetector' in window || Boolean(navigator?.mediaDevices?.getUserMedia));
   const usbConnected = Boolean(activeUsbPrinter && activeUsbPrinter.opened);
   const serialConnected = Boolean(activeSerialPrinter && activeSerialPrinter.writable);
   const activePrinterTransport: 'usb' | 'serial' | null = usbConnected
