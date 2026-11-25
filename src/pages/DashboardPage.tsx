@@ -16,6 +16,8 @@ import {
   Pause,
   Volume2,
   VolumeX,
+  ArrowUpRight,
+  Package,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -268,7 +270,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Hero Video Banner */}
-      <section className="glass-surface glass-section glass-animated relative w-full aspect-video max-h-[420px] rounded-2xl border border-slate-200/80 dark:border-white/15 overflow-hidden shadow-md bg-slate-950">
+      <section className="glass-surface glass-section glass-animated relative w-full min-h-[290px] sm:min-h-[340px] lg:min-h-[380px] max-h-[460px] rounded-2xl border-2 border-emerald-500/35 dark:border-emerald-400/25 overflow-hidden shadow-lg bg-emerald-950 flex flex-col justify-between">
         {!videoFailed ? (
           <video
             ref={heroVideoRef}
@@ -281,52 +283,100 @@ export default function DashboardPage() {
             onPlay={() => setIsVideoPlaying(true)}
             onPause={() => setIsVideoPlaying(false)}
             onError={() => setVideoFailed(true)}
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
           />
         ) : (
           <img
             src={HERO_POSTER_SRC}
             alt="Sanyali School of Technology video banner"
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
           />
         )}
 
-        {/* Top-Right Video Controls (icon-only, no overlaid text) */}
-        {!videoFailed && (
-          <div className="absolute top-3.5 right-3.5 z-20 flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={toggleHeroMute}
-              aria-label={isVideoMuted ? 'Unmute hero video' : 'Mute hero video'}
-              title={isVideoMuted ? 'Unmute video' : 'Mute video'}
-              className="h-9 w-9 rounded-xl bg-slate-950/60 hover:bg-slate-950/85 text-white border border-white/20 backdrop-blur-md cursor-pointer"
-            >
-              {isVideoMuted ? (
-                <VolumeX className="h-4 w-4" />
-              ) : (
-                <Volume2 className="h-4 w-4 text-sky-300" />
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={toggleHeroVideo}
-              aria-label={isVideoPlaying ? 'Pause hero video' : 'Play hero video'}
-              title={isVideoPlaying ? 'Pause video' : 'Play video'}
-              className="h-9 w-9 rounded-xl bg-slate-950/60 hover:bg-slate-950/85 text-white border border-white/20 backdrop-blur-md cursor-pointer"
-            >
-              {isVideoPlaying ? (
-                <Pause className="h-4 w-4" />
-              ) : (
-                <Play className="h-4 w-4" />
-              )}
-            </Button>
+        {/* Lush Emerald Green Gradient Overlay */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-emerald-950/92 via-emerald-900/58 to-teal-700/30"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/35 via-transparent to-emerald-950/88"
+        />
+
+        {/* Top Bar: Station Tag + Media Controls */}
+        <div className="relative z-20 p-4 sm:px-6 sm:pt-5 flex items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-300/30 bg-emerald-950/60 px-2.5 py-1 text-[11px] font-semibold tracking-wider uppercase text-emerald-200 backdrop-blur-md">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+            <span>S.S.T POS · Live Counter</span>
           </div>
-        )}
+
+          {!videoFailed && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={toggleHeroMute}
+                aria-label={isVideoMuted ? 'Unmute hero video' : 'Mute hero video'}
+                title={isVideoMuted ? 'Unmute video' : 'Mute video'}
+                className="h-9 w-9 rounded-xl bg-emerald-950/65 hover:bg-emerald-900/85 text-white border border-emerald-300/25 backdrop-blur-md cursor-pointer"
+              >
+                {isVideoMuted ? (
+                  <VolumeX className="h-4 w-4" />
+                ) : (
+                  <Volume2 className="h-4 w-4 text-emerald-300" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={toggleHeroVideo}
+                aria-label={isVideoPlaying ? 'Pause hero video' : 'Play hero video'}
+                title={isVideoPlaying ? 'Pause video' : 'Play video'}
+                className="h-9 w-9 rounded-xl bg-emerald-950/65 hover:bg-emerald-900/85 text-white border border-emerald-300/25 backdrop-blur-md cursor-pointer"
+              >
+                {isVideoPlaying ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Overlay: Important Summary Text + Direct Quick Links */}
+        <div className="relative z-20 p-4 sm:p-6 pt-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="max-w-xl space-y-1.5">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-white drop-shadow-xs">
+              Sanyali School of Technology
+            </h2>
+            <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
+              Fast offline-ready sales, live stock monitoring, camera barcode scanning, and instant receipt printing from one unified terminal.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <Link
+              to="/checkout"
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 px-4 py-2.5 text-sm font-bold shadow-lg shadow-emerald-950/40 transition-colors"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              <span>Checkout</span>
+              <ArrowUpRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to="/products"
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-300/35 bg-emerald-950/65 hover:bg-emerald-900/80 text-white px-4 py-2.5 text-sm font-semibold backdrop-blur-md shadow-lg shadow-emerald-950/30 transition-colors"
+            >
+              <Package className="h-4 w-4 text-emerald-300" />
+              <span>Products</span>
+              <ArrowUpRight className="h-4 w-4 text-emerald-200" />
+            </Link>
+          </div>
+        </div>
       </section>
 
       {/* Today's Metrics */}
