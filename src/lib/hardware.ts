@@ -102,6 +102,22 @@ interface WebSerialPort {
   getInfo?: () => { usbVendorId?: number; usbProductId?: number };
 }
 
+interface WebUSBConfiguration {
+  configurationValue: number;
+  interfaces: Array<{
+    interfaceNumber: number;
+    alternates: Array<{
+      alternateSetting: number;
+      interfaceClass?: number;
+      endpoints: Array<{
+        endpointNumber: number;
+        direction: 'in' | 'out';
+        type: 'bulk' | 'interrupt' | 'isochronous';
+      }>;
+    }>;
+  }>;
+}
+
 interface WebUSBDevice {
   opened: boolean;
   vendorId?: number;
@@ -109,25 +125,14 @@ interface WebUSBDevice {
   serialNumber?: string;
   productName?: string;
   manufacturerName?: string;
-  configuration: {
-    configurationValue: number;
-    interfaces: Array<{
-      interfaceNumber: number;
-      alternates: Array<{
-        alternateSetting: number;
-        interfaceClass?: number;
-        endpoints: Array<{
-          endpointNumber: number;
-          direction: 'in' | 'out';
-          type: 'bulk' | 'interrupt' | 'isochronous';
-        }>;
-      }>;
-    }>;
-  } | null;
+  configuration: WebUSBConfiguration | null;
+  configurations?: WebUSBConfiguration[];
   open(): Promise<void>;
   close(): Promise<void>;
+  reset?: () => Promise<void>;
   selectConfiguration(configurationValue: number): Promise<void>;
   claimInterface(interfaceNumber: number): Promise<void>;
+  releaseInterface?: (interfaceNumber: number) => Promise<void>;
   selectAlternateInterface?: (interfaceNumber: number, alternateSetting: number) => Promise<void>;
   transferOut(endpointNumber: number, data: BufferSource): Promise<{ status: string }>;
 }
@@ -160,6 +165,7 @@ let activeSerialPrinter: WebSerialPort | null = null;
 let serialPrinterLabel: string | null = null;
 
 let activeUsbPrinter: WebUSBDevice | null = null;
+let activeUsbInterfaceNumber: number | null = null;
 let activeUsbOutEndpoint: number | null = null;
 let usbPrinterLabel: string | null = null;
 
@@ -562,60 +568,59 @@ export async function sendEscPosSerial(bytes: Uint8Array): Promise<boolean> {
 }
 
 // --- Driverless WebUSB Printer Connection (USB Printer Class 0x07 + Vendor Bulk-Out) ---
-function findUsbPrinterEndpoint(device: WebUSBDevice): {
+export type UsbConnectErrorCode = 'os-claimed' | 'no-endpoint' | 'unsupported' | 'cancelled' | 'error';
+
+interface UsbEndpointCandidate {
+  configurationValue: number;
   interfaceNumber: number;
   alternateSetting: number;
   endpointNumber: number;
-} | null {
-  const interfaces = device.configuration?.interfaces || [];
+  priority: number;
+}
 
-  // Pass 1: Standard USB Printer Class (bInterfaceClass === 7)
-  for (const iface of interfaces) {
-    for (const alt of iface.alternates || []) {
-      if (alt.interfaceClass === 7) {
-        const ep =
-          alt.endpoints.find((e) => e.direction === 'out' && e.type === 'bulk') ||
-          alt.endpoints.find((e) => e.direction === 'out');
-        if (ep) {
-          return {
-            interfaceNumber: iface.interfaceNumber,
-            alternateSetting: alt.alternateSetting,
-            endpointNumber: ep.endpointNumber,
-          };
+function collectUsbPrinterCandidates(device: WebUSBDevice): UsbEndpointCandidate[] {
+  const configs: WebUSBConfiguration[] =
+    device.configurations && device.configurations.length > 0
+      ? device.configurations
+      : device.configuration
+        ? [device.configuration]
+        : [];
+
+  const candidates: UsbEndpointCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const cfg of configs) {
+    for (const iface of cfg.interfaces || []) {
+      for (const alt of iface.alternates || []) {
+        for (const ep of alt.endpoints || []) {
+          if (ep.direction !== 'out') continue;
+          const isBulk = ep.type === 'bulk';
+          const isInterrupt = ep.type === 'interrupt';
+          if (!isBulk && !isInterrupt) continue;
+
+          let priority = 5;
+          if (alt.interfaceClass === 7 && isBulk) priority = 1;
+          else if (alt.interfaceClass === 255 && isBulk) priority = 2;
+          else if (isBulk) priority = 3;
+          else if (alt.interfaceClass === 7) priority = 4;
+
+          const key = `${cfg.configurationValue}:${iface.interfaceNumber}:${alt.alternateSetting}:${ep.endpointNumber}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            candidates.push({
+              configurationValue: cfg.configurationValue,
+              interfaceNumber: iface.interfaceNumber,
+              alternateSetting: alt.alternateSetting,
+              endpointNumber: ep.endpointNumber,
+              priority,
+            });
+          }
         }
       }
     }
   }
 
-  // Pass 2: Any interface exposing a bulk-out endpoint (ESC/POS vendor-specific)
-  for (const iface of interfaces) {
-    for (const alt of iface.alternates || []) {
-      const bulkOut = alt.endpoints.find((e) => e.direction === 'out' && e.type === 'bulk');
-      if (bulkOut) {
-        return {
-          interfaceNumber: iface.interfaceNumber,
-          alternateSetting: alt.alternateSetting,
-          endpointNumber: bulkOut.endpointNumber,
-        };
-      }
-    }
-  }
-
-  // Pass 3: Interrupt-out fallback
-  for (const iface of interfaces) {
-    for (const alt of iface.alternates || []) {
-      const intOut = alt.endpoints.find((e) => e.direction === 'out' && e.type === 'interrupt');
-      if (intOut) {
-        return {
-          interfaceNumber: iface.interfaceNumber,
-          alternateSetting: alt.alternateSetting,
-          endpointNumber: intOut.endpointNumber,
-        };
-      }
-    }
-  }
-
-  return null;
+  return candidates.sort((a, b) => a.priority - b.priority);
 }
 
 function buildUsbPrinterLabel(device: WebUSBDevice): string {
@@ -632,17 +637,18 @@ function buildUsbPrinterLabel(device: WebUSBDevice): string {
 async function openUsbPrinterDevice(
   device: WebUSBDevice,
   options: { silent?: boolean; notifyCable?: boolean } = {}
-): Promise<{ ok: boolean; label?: string; error?: string }> {
+): Promise<{ ok: boolean; label?: string; error?: string; errorCode?: UsbConnectErrorCode }> {
   try {
     if (!device.opened) {
       await device.open();
     }
     if (device.configuration === null) {
-      await device.selectConfiguration(1);
+      const firstCfg = device.configurations?.[0]?.configurationValue ?? 1;
+      await device.selectConfiguration(firstCfg);
     }
 
-    const match = findUsbPrinterEndpoint(device);
-    if (!match) {
+    const candidates = collectUsbPrinterCandidates(device);
+    if (candidates.length === 0) {
       if (device.opened) {
         try {
           await device.close();
@@ -650,19 +656,69 @@ async function openUsbPrinterDevice(
       }
       return {
         ok: false,
+        errorCode: 'no-endpoint',
         error: 'Selected USB device does not expose a driverless printer output endpoint.',
       };
     }
 
-    await device.claimInterface(match.interfaceNumber);
-    if (match.alternateSetting !== 0 && device.selectAlternateInterface) {
+    let claimed: UsbEndpointCandidate | null = null;
+    let lastClaimErr = '';
+    let attemptedReset = false;
+
+    for (const cand of candidates) {
       try {
-        await device.selectAlternateInterface(match.interfaceNumber, match.alternateSetting);
-      } catch {}
+        if (device.configuration?.configurationValue !== cand.configurationValue) {
+          await device.selectConfiguration(cand.configurationValue);
+        }
+        await device.claimInterface(cand.interfaceNumber);
+        if (cand.alternateSetting !== 0 && device.selectAlternateInterface) {
+          try {
+            await device.selectAlternateInterface(cand.interfaceNumber, cand.alternateSetting);
+          } catch {}
+        }
+        claimed = cand;
+        break;
+      } catch (err) {
+        lastClaimErr = err instanceof Error ? err.message : String(err);
+        // Try resetting once if initial interface claim failed, then retry this interface
+        if (!attemptedReset && device.reset) {
+          attemptedReset = true;
+          try {
+            await device.reset();
+            await device.claimInterface(cand.interfaceNumber);
+            if (cand.alternateSetting !== 0 && device.selectAlternateInterface) {
+              try {
+                await device.selectAlternateInterface(cand.interfaceNumber, cand.alternateSetting);
+              } catch {}
+            }
+            claimed = cand;
+            break;
+          } catch (retryErr) {
+            lastClaimErr = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          }
+        }
+      }
+    }
+
+    if (!claimed) {
+      if (device.opened) {
+        try {
+          await device.close();
+        } catch {}
+      }
+      const isOsLock = /claim|access denied|protected|busy|security|unable/i.test(lastClaimErr);
+      return {
+        ok: false,
+        errorCode: isOsLock ? 'os-claimed' : 'error',
+        error: isOsLock
+          ? 'Your OS built-in USB printer lock is holding this USB port. Use "Detect Serial/COM Cable" or print via 80mm/58mm Thermal Print instead.'
+          : lastClaimErr || 'Could not claim USB printer interface.',
+      };
     }
 
     activeUsbPrinter = device;
-    activeUsbOutEndpoint = match.endpointNumber;
+    activeUsbInterfaceNumber = claimed.interfaceNumber;
+    activeUsbOutEndpoint = claimed.endpointNumber;
     const label = buildUsbPrinterLabel(device);
     usbPrinterLabel = label;
 
@@ -687,30 +743,45 @@ async function openUsbPrinterDevice(
     return { ok: true, label };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to connect USB printer';
-    const isClaimError =
-      /claim|access denied|protected|busy|security/i.test(msg);
+    const isClaimError = /claim|access denied|protected|busy|security|unable/i.test(msg);
     return {
       ok: false,
+      errorCode: isClaimError ? 'os-claimed' : 'error',
       error: isClaimError
-        ? `${msg}. Your OS may have locked this USB port—try "Detect Serial/COM Cable" instead or unplug/replug.`
+        ? 'Your OS built-in USB printer lock is holding this USB port. Use "Detect Serial/COM Cable" or print via 80mm/58mm Thermal Print instead.'
         : msg,
     };
   }
 }
 
-export async function connectUsbPrinter(): Promise<{ ok: boolean; label?: string; error?: string }> {
+export async function connectUsbPrinter(): Promise<{
+  ok: boolean;
+  label?: string;
+  error?: string;
+  errorCode?: UsbConnectErrorCode;
+}> {
   const usb = getUsbApi();
   if (!usb) {
-    return { ok: false, error: 'WebUSB API is not supported in this browser. Use Chrome/Edge over HTTPS.' };
+    return {
+      ok: false,
+      errorCode: 'unsupported',
+      error: 'WebUSB API is not supported in this browser. Use Chrome/Edge over HTTPS.',
+    };
   }
 
   try {
+    if (activeUsbPrinter?.opened) {
+      await disconnectUsbPrinter();
+    }
     const device = await usb.requestDevice({ filters: [] });
     return await openUsbPrinterDevice(device);
   } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to connect USB printer';
+    const isCancelled = /no device selected|cancelled|aborted/i.test(msg);
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Failed to connect USB printer',
+      errorCode: isCancelled ? 'cancelled' : 'error',
+      error: msg,
     };
   }
 }
@@ -718,9 +789,15 @@ export async function connectUsbPrinter(): Promise<{ ok: boolean; label?: string
 export async function disconnectUsbPrinter(): Promise<void> {
   if (activeUsbPrinter) {
     try {
+      if (activeUsbInterfaceNumber !== null && activeUsbPrinter.releaseInterface) {
+        await activeUsbPrinter.releaseInterface(activeUsbInterfaceNumber);
+      }
+    } catch {}
+    try {
       await activeUsbPrinter.close();
     } catch {}
     activeUsbPrinter = null;
+    activeUsbInterfaceNumber = null;
     activeUsbOutEndpoint = null;
     usbPrinterLabel = null;
     appendHardwareLog('printer', 'USB Printer Disconnected', 'Device closed');
@@ -825,7 +902,13 @@ export async function reconnectKnownPrinters(notifyCable = false): Promise<{
 
 export async function connectPluggedPrinter(
   preferredTransport?: 'usb' | 'serial'
-): Promise<{ ok: boolean; transport?: 'usb' | 'serial'; label?: string; error?: string }> {
+): Promise<{
+  ok: boolean;
+  transport?: 'usb' | 'serial';
+  label?: string;
+  error?: string;
+  errorCode?: UsbConnectErrorCode;
+}> {
   // First check if an authorized cable is already plugged in
   const autoRes = await reconnectKnownPrinters(false);
   if (autoRes.connected && autoRes.label && autoRes.transport) {
@@ -838,7 +921,7 @@ export async function connectPluggedPrinter(
   if (target === 'usb') {
     const res = await connectUsbPrinter();
     if (res.ok) return { ok: true, transport: 'usb', label: res.label };
-    return { ok: false, error: res.error };
+    return { ok: false, error: res.error, errorCode: res.errorCode };
   }
 
   const serialRes = await connectSerialPrinter();
@@ -1193,18 +1276,29 @@ export async function connectAndPrintReceipt(
   preferredTransport?: 'usb' | 'serial'
 ): Promise<{
   ok: boolean;
+  fallbackUsed?: boolean;
+  errorCode?: UsbConnectErrorCode;
   message: string;
 }> {
   if (!activeUsbPrinter?.opened && !activeSerialPrinter?.writable) {
     const conn = await connectPluggedPrinter(preferredTransport);
     if (!conn.ok) {
-      return { ok: false, message: conn.error || 'No printer cable connected.' };
+      if (conn.errorCode === 'os-claimed') {
+        const fallback = await printThermalReceipt(transaction);
+        return {
+          ok: true,
+          fallbackUsed: true,
+          errorCode: 'os-claimed',
+          message: `Direct USB port is locked by your OS — sent thermal receipt via ${fallback.method === 'download' ? 'downloadable receipt' : 'system thermal print'}.`,
+        };
+      }
+      return { ok: false, errorCode: conn.errorCode, message: conn.error || 'No printer cable connected.' };
     }
   }
 
   const res = await printThermalReceipt(transaction);
   return {
-    ok: res.method === 'escpos-usb' || res.method === 'escpos-serial',
+    ok: res.method === 'escpos-usb' || res.method === 'escpos-serial' || res.method === 'browser-print',
     message: res.message,
   };
 }

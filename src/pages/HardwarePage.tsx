@@ -58,6 +58,7 @@ export default function HardwarePage() {
   const [testSwipeInput, setTestSwipeInput] = useState('');
   const [testSwipeResult, setTestSwipeResult] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [usbClaimBlocked, setUsbClaimBlocked] = useState(false);
 
   useEffect(() => {
     getAllProducts().then(setProducts).catch(console.warn);
@@ -85,8 +86,14 @@ export default function HardwarePage() {
   const handlePairUsbPrinter = async () => {
     const res = await connectUsbPrinter();
     if (res.ok) {
+      setUsbClaimBlocked(false);
       toast.success(`Paired USB printer: ${res.label}`);
-    } else {
+    } else if (res.errorCode === 'os-claimed') {
+      setUsbClaimBlocked(true);
+      toast.warning(
+        'Your OS locked the direct USB printer interface. Try "Detect Serial/COM Cable" or print via 80mm/58mm Thermal Print.'
+      );
+    } else if (res.errorCode !== 'cancelled') {
       toast.error(res.error || 'Could not pair USB printer');
     }
   };
@@ -94,6 +101,7 @@ export default function HardwarePage() {
   const handlePairSerialPrinter = async () => {
     const res = await connectSerialPrinter(config.serialPrinterBaudRate);
     if (res.ok) {
+      setUsbClaimBlocked(false);
       toast.success(`Paired driverless Serial printer: ${res.label}`);
     } else {
       toast.error(res.error || 'Could not pair Serial printer');
@@ -317,6 +325,45 @@ export default function HardwarePage() {
                 Scan Cables
               </Button>
             </div>
+
+            {usbClaimBlocked && !runtime.activePrinterTransport && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs space-y-2">
+                <p className="font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  OS Built-In USB Printer Lock Detected
+                </p>
+                <p className="text-amber-800/90 dark:text-amber-200/90 leading-relaxed">
+                  Your operating system automatically locked the printer&apos;s Class-07 USB port on plug-in, so Chrome cannot claim raw USB directly. You can still print right now without vendor drivers:
+                </p>
+                <div className="flex flex-wrap gap-2 pt-0.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleTestPrint}
+                    className="h-7 rounded-lg text-xs border-amber-500/50 bg-background/70 cursor-pointer"
+                  >
+                    <Printer className="h-3 w-3 mr-1.5" />
+                    Print via Plugged System Printer
+                  </Button>
+                  {runtime.serialSupported && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handlePairSerialPrinter}
+                      className="h-7 rounded-lg text-xs border-amber-500/50 bg-background/70 cursor-pointer"
+                    >
+                      <Cable className="h-3 w-3 mr-1.5" />
+                      Try Serial/COM Cable
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-800/80 dark:text-amber-200/75">
+                  Tip for Windows silent 1-click USB: bind <span className="font-mono font-semibold">WinUSB</span> to the printer&apos;s USB Printing Support device with Zadig, or enable Virtual COM mode on the printer.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-2">

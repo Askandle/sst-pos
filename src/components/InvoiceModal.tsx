@@ -389,9 +389,11 @@ export default function InvoiceModal({
     setIsConnectingPrint(true);
     try {
       const res = await connectAndPrintReceipt(transaction);
-      if (res.ok) {
+      if (res.fallbackUsed) {
+        toast.info(res.message);
+      } else if (res.ok) {
         toast.success(res.message);
-      } else {
+      } else if (res.errorCode !== 'cancelled') {
         toast.error(res.message);
       }
     } finally {
