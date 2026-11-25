@@ -54,7 +54,7 @@ export default function AppLayout() {
       </div>
 
       <Navbar />
-      <main className="relative z-10 flex-1 min-w-0 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="relative z-10 flex-1 min-w-0 max-w-7xl w-full mx-auto p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">
         <OfflineStatusBanner />
         <Outlet />
       </main>

@@ -511,6 +511,63 @@ export default function Navbar() {
         </div>
       </header>
 
+      {/* Mobile App Bottom Tab Dock */}
+      <nav
+        aria-label="Mobile app navigation"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-200/80 dark:border-white/10 bg-white/92 dark:bg-slate-900/92 backdrop-blur-md shadow-[0_-6px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-6px_24px_rgba(0,0,0,0.45)] pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="grid grid-cols-5 h-16 max-w-xl mx-auto px-1">
+          {[
+            { to: '/', label: 'Home', icon: Monitor },
+            { to: '/products', label: 'Products', icon: Package },
+            {
+              to: '/checkout',
+              label: 'Checkout',
+              icon: ShoppingCart,
+              badge: cartCount > 0 ? cartCount : null,
+            },
+            { to: '/transactions', label: 'Sales', icon: Receipt },
+          ].map((item) => {
+            const Icon = item.icon;
+            const active = location.pathname === item.to;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`relative flex flex-col items-center justify-center gap-1 rounded-xl mx-0.5 my-1 text-[11px] font-medium transition-colors ${
+                  active
+                    ? 'text-primary dark:text-sky-300 bg-primary/10 dark:bg-sky-400/15 font-semibold'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-foreground'
+                }`}
+              >
+                <div className="relative">
+                  <Icon className="h-5 w-5" />
+                  {item.badge !== null && item.badge !== undefined && (
+                    <span className="absolute -top-1.5 -right-2.5 h-4 min-w-4 px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="leading-none">{item.label}</span>
+              </Link>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className={`flex flex-col items-center justify-center gap-1 rounded-xl mx-0.5 my-1 text-[11px] font-medium transition-colors cursor-pointer ${
+              mobileMenuOpen
+                ? 'text-primary dark:text-sky-300 bg-primary/10'
+                : 'text-slate-600 dark:text-slate-300 hover:text-foreground'
+            }`}
+          >
+            <Menu className="h-5 w-5" />
+            <span className="leading-none">More</span>
+          </button>
+        </div>
+      </nav>
+
       {/* Mobile Slide-Over Glass Sidebar Drawer */}
       {mobileMenuOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">

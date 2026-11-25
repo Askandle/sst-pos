@@ -20,6 +20,7 @@ import {
   Package,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -375,6 +376,7 @@ export default function DashboardPage() {
               <span>Products</span>
               <ArrowUpRight className="h-4 w-4 text-emerald-200" />
             </Link>
+            <PWAInstallButton variant="hero" />
           </div>
         </div>
       </section>

@@ -28,8 +28,33 @@ export default defineConfig(() => {
           theme_color: '#0284c7',
           background_color: '#f8fafc',
           display: 'standalone',
+          orientation: 'any',
+          categories: ['business', 'productivity', 'finance'],
           start_url: '/',
           scope: '/',
+          shortcuts: [
+            {
+              name: 'Checkout',
+              short_name: 'Checkout',
+              description: 'Open POS Checkout & Barcode Scanner',
+              url: '/checkout',
+              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+            },
+            {
+              name: 'Products',
+              short_name: 'Products',
+              description: 'Manage Inventory & Stock',
+              url: '/products',
+              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+            },
+            {
+              name: 'Transactions',
+              short_name: 'Sales',
+              description: 'View Sales History & Receipts',
+              url: '/transactions',
+              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+            },
+          ],
           icons: [
             {
               src: '/pwa-192x192.png',
