@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { format } from 'date-fns';
+import { formatGhanaDateTime } from '@/lib/ghanaTime';
 import type { TransactionWithItems } from '@/types';
 import {
   Dialog,
@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Monitor, Printer, User, Phone, Receipt, Download, ReceiptText, Usb, CheckCircle2 } from 'lucide-react';
+import { Monitor, Printer, User, Phone, Receipt, Download, Usb, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { printThermalReceipt, connectAndPrintReceipt } from '@/lib/hardware';
 import { useHardwareState } from '@/hooks/useBarcodeScanner';
@@ -45,8 +45,7 @@ function escapeHtml(str: string): string {
 }
 
 function buildPrintableInvoiceHtml(transaction: TransactionWithItems): string {
-  const d = new Date(transaction.created_at);
-  const createdStr = format(isNaN(d.getTime()) ? new Date() : d, 'MMM dd, yyyy • HH:mm');
+  const createdStr = formatGhanaDateTime(transaction.created_at, ' • ');
   const rows = (transaction.items || [])
     .map(
       (item, idx) => `
@@ -197,7 +196,7 @@ function InvoiceSheet({ transaction }: { transaction: TransactionWithItems }) {
             {transaction.transaction_number}
           </p>
           <p className="text-xs text-slate-600 mt-0.5">
-            Date: {format(createdDate, 'MMM dd, yyyy • HH:mm')}
+            Date: {formatGhanaDateTime(createdDate, ' • ')}
           </p>
           <p className="text-xs font-semibold uppercase mt-0.5 text-emerald-700">
             Status: {transaction.status === 'completed' ? 'PAID' : 'REFUNDED'}
@@ -440,27 +439,30 @@ export default function InvoiceModal({
               <Download className="mr-2 h-4 w-4" />
               Download Invoice
             </Button>
-            {!runtime.activePrinterTransport && (runtime.usbSupported || runtime.serialSupported) && (
+            {runtime.activePrinterTransport ? (
               <Button
                 type="button"
                 variant="outline"
-                disabled={isConnectingPrint}
-                onClick={handleDirectCablePrint}
-                className="cursor-pointer border-indigo-500/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10"
+                onClick={handleThermalPrint}
+                className="cursor-pointer border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10"
               >
                 <Usb className="mr-2 h-4 w-4" />
-                {isConnectingPrint ? 'Connecting...' : 'Plug & Print (No Driver)'}
+                Print Direct (Cable)
               </Button>
+            ) : (
+              (runtime.usbSupported || runtime.serialSupported) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isConnectingPrint}
+                  onClick={handleDirectCablePrint}
+                  className="cursor-pointer border-indigo-500/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/10"
+                >
+                  <Usb className="mr-2 h-4 w-4" />
+                  {isConnectingPrint ? 'Connecting...' : 'Plug & Print (No Driver)'}
+                </Button>
+              )
             )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleThermalPrint}
-              className="cursor-pointer border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10"
-            >
-              <ReceiptText className="mr-2 h-4 w-4" />
-              {runtime.activePrinterTransport ? 'Print Direct (Cable)' : 'Thermal Receipt'}
-            </Button>
             <Button
               type="button"
               variant="outline"

@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/table';
 import { Eye, Receipt, Trash2, Printer } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { formatGhanaDateTime } from '@/lib/ghanaTime';
 import InvoiceModal from '@/components/InvoiceModal';
 
 export default function TransactionsPage() {
@@ -209,7 +209,7 @@ export default function TransactionsPage() {
                         {transaction.transaction_number}
                       </TableCell>
                       <TableCell>
-                        {format(new Date(transaction.created_at), 'MMM dd, yyyy HH:mm')}
+                        {formatGhanaDateTime(transaction.created_at)}
                       </TableCell>
                       <TableCell>
                         {transaction.customer_name || transaction.customer_phone ? (
@@ -304,7 +304,7 @@ export default function TransactionsPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Date</p>
                   <p className="font-medium">
-                    {format(new Date(selectedTransaction.created_at), 'MMM dd, yyyy HH:mm')}
+                    {formatGhanaDateTime(selectedTransaction.created_at)}
                   </p>
                 </div>
                 <div>

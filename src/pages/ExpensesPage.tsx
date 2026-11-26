@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Plus, Trash2, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { getGhanaDateKey, formatGhanaDate } from '@/lib/ghanaTime';
 
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -51,7 +51,7 @@ export default function ExpensesPage() {
   const [category, setCategory] = useState<ExpenseCategory>('supplies');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
-  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expenseDate, setExpenseDate] = useState(() => getGhanaDateKey());
   const [receiptNotes, setReceiptNotes] = useState('');
 
   const { user, profile } = useAuth();
@@ -145,7 +145,7 @@ export default function ExpensesPage() {
     setCategory('supplies');
     setDescription('');
     setAmount('');
-    setExpenseDate(new Date().toISOString().split('T')[0]);
+    setExpenseDate(getGhanaDateKey());
     setReceiptNotes('');
   };
 
@@ -318,7 +318,7 @@ export default function ExpensesPage() {
                   expenses.map((expense) => (
                     <TableRow key={expense.id}>
                       <TableCell>
-                        {format(new Date(expense.expense_date), 'MMM dd, yyyy')}
+                        {formatGhanaDate(expense.expense_date)}
                       </TableCell>
                       <TableCell>{getCategoryBadge(expense.category)}</TableCell>
                       <TableCell>

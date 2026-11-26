@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { getGhanaNow, formatGhanaReceiptDateTime } from '@/lib/ghanaTime';
 import type { CartItem, Product, TransactionWithItems } from '@/types';
 
 export type ReceiptPrinterMode = 'browser-80mm' | 'browser-58mm' | 'escpos-serial' | 'escpos-usb';
@@ -276,7 +276,7 @@ export function appendHardwareLog(
 ): void {
   const entry: HardwareLogEntry = {
     id: `hw_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    timestamp: new Date().toISOString(),
+    timestamp: getGhanaNow().toISOString(),
     device,
     action,
     detail,
@@ -408,8 +408,7 @@ export function buildEscPosReceiptBytes(
   const BOLD_OFF = new Uint8Array([0x1b, 0x45, 0x00]);
   const FEED_CUT = new Uint8Array([0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00]);
 
-  const d = new Date(transaction.created_at);
-  const dateStr = format(isNaN(d.getTime()) ? new Date() : d, 'yyyy-MM-dd HH:mm');
+  const dateStr = formatGhanaReceiptDateTime(transaction.created_at);
 
   const headerText = encodeAsciiLines([
     'S.S.T POS',
@@ -1088,8 +1087,7 @@ export function buildThermalReceiptHtml(
   width: '58mm' | '80mm' = '80mm',
   config: HardwareConfig = getHardwareConfig()
 ): string {
-  const d = new Date(transaction.created_at);
-  const createdStr = format(isNaN(d.getTime()) ? new Date() : d, 'yyyy-MM-dd HH:mm');
+  const createdStr = formatGhanaReceiptDateTime(transaction.created_at);
   const maxWidth = width === '58mm' ? '58mm' : '80mm';
 
   const itemsHtml = (transaction.items || [])
@@ -1482,7 +1480,7 @@ export function createSampleReceiptTransaction(config: HardwareConfig = getHardw
     payment_method: 'cash',
     status: 'completed',
     notes: 'Test thermal receipt alignment',
-    created_at: new Date().toISOString(),
+    created_at: getGhanaNow().toISOString(),
     items: [
       {
         id: 'test_1',

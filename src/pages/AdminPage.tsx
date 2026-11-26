@@ -65,7 +65,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { getGhanaDateKey, formatGhanaDate } from '@/lib/ghanaTime';
 
 type RawCollection = 'products' | 'services' | 'transactions' | 'expenses' | 'profiles';
 
@@ -194,7 +194,7 @@ export default function AdminPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `sst-pos-database-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `sst-pos-database-backup-${getGhanaDateKey()}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -407,7 +407,7 @@ export default function AdminPage() {
                       {(() => {
                         if (!user.created_at) return 'Recent';
                         const d = new Date(user.created_at);
-                        return isNaN(d.getTime()) ? 'Recent' : format(d, 'MMM dd, yyyy');
+                        return isNaN(d.getTime()) ? 'Recent' : formatGhanaDate(d);
                       })()}
                     </TableCell>
                     <TableCell>

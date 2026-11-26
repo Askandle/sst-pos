@@ -48,7 +48,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { formatGhanaTime } from '@/lib/ghanaTime';
 
 export default function HardwarePage() {
   const { config, runtime, logs } = useHardwareState();
@@ -761,7 +761,7 @@ export default function HardwarePage() {
                     <span className="text-xs text-muted-foreground truncate">· {entry.detail}</span>
                   </div>
                   <span className="font-mono text-xs text-muted-foreground tabular-nums shrink-0">
-                    {format(new Date(entry.timestamp), 'HH:mm:ss')}
+                    {formatGhanaTime(entry.timestamp)}
                   </span>
                 </div>
               ))}

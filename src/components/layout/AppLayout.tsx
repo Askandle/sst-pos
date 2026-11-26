@@ -4,10 +4,16 @@ import { toast } from 'sonner';
 import Navbar from './Navbar';
 import OfflineStatusBanner from '@/components/OfflineStatusBanner';
 import { initDriverlessPrinterAutoDetect } from '@/lib/hardware';
+import { syncGhanaClock } from '@/lib/ghanaTime';
 
 export default function AppLayout() {
   useEffect(() => {
     initDriverlessPrinterAutoDetect();
+    void syncGhanaClock();
+
+    const handleClockSync = () => {
+      void syncGhanaClock();
+    };
 
     const handleSyncCompleted = (e: Event) => {
       const detail = (e as CustomEvent<{ synced?: number; failed?: number }>).detail;
@@ -38,9 +44,13 @@ export default function AppLayout() {
 
     window.addEventListener('offline-sync-completed', handleSyncCompleted);
     window.addEventListener('printer-cable-event', handlePrinterCableEvent);
+    window.addEventListener('online', handleClockSync);
+    window.addEventListener('focus', handleClockSync);
     return () => {
       window.removeEventListener('offline-sync-completed', handleSyncCompleted);
       window.removeEventListener('printer-cable-event', handlePrinterCableEvent);
+      window.removeEventListener('online', handleClockSync);
+      window.removeEventListener('focus', handleClockSync);
     };
   }, []);
 

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getTransactions, getExpenses, getAllProducts } from '@/db/api';
+import {
+  getTransactions,
+  getExpenses,
+  getAllProducts,
+  shiftTransactionsTimestamp,
+} from '@/db/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { DashboardStats, Product, TransactionWithItems } from '@/types';
@@ -18,10 +23,19 @@ import {
   VolumeX,
   ArrowUpRight,
   Package,
+  Clock,
+  History,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -31,7 +45,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { format } from 'date-fns';
+import { toast } from 'sonner';
+import {
+  getGhanaNow,
+  syncGhanaClock,
+  getGhanaDateKey,
+  getGhanaHour,
+  formatGhanaDate,
+  formatGhanaShortTime,
+  getMsUntilNextGhanaMidnight,
+} from '@/lib/ghanaTime';
 
 const HERO_VIDEO_SRC = '/assets/aistudio/lv_7696810122198437138_20261123181308_259c64b8.mp4';
 const HERO_POSTER_SRC = '/assets/hero-poster.jpg';
@@ -48,10 +71,14 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [dailyBreakdown, setDailyBreakdown] = useState<DailySummaryRow[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
+  const [todayTxnsList, setTodayTxnsList] = useState<TransactionWithItems[]>([]);
+  const [todayBreakdownOpen, setTodayBreakdownOpen] = useState(false);
+  const [isFixingTimestamps, setIsFixingTimestamps] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isVideoMuted, setIsVideoMuted] = useState(true);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [ghanaNow, setGhanaNow] = useState(() => getGhanaNow());
   const heroVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const toggleHeroVideo = () => {
@@ -77,26 +104,54 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData();
+    void syncGhanaClock().then(() => setGhanaNow(getGhanaNow()));
     // Trigger background Firestore sync so mobile/other devices stay updated
     getTransactions(2000).catch(console.warn);
     getExpenses(2000).catch(console.warn);
     getAllProducts().catch(console.warn);
 
     const handleFocus = () => {
+      void syncGhanaClock();
       getTransactions(2000).catch(console.warn);
       getExpenses(2000).catch(console.warn);
       getAllProducts().catch(console.warn);
       loadDashboardData();
     };
 
+    let midnightTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleMidnightRefresh = () => {
+      if (midnightTimer) clearTimeout(midnightTimer);
+      const waitMs = getMsUntilNextGhanaMidnight();
+      midnightTimer = setTimeout(() => {
+        setGhanaNow(getGhanaNow());
+        loadDashboardData();
+        scheduleMidnightRefresh();
+      }, waitMs + 250);
+    };
+    scheduleMidnightRefresh();
+
+    const handleClockSynced = () => {
+      setGhanaNow(getGhanaNow());
+      loadDashboardData();
+      scheduleMidnightRefresh();
+    };
+
+    const clockInterval = setInterval(() => {
+      setGhanaNow(getGhanaNow());
+    }, 15000);
+
     window.addEventListener('storage', loadDashboardData);
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('ghana-time-synced', handleClockSynced);
     window.addEventListener('transactions-updated', loadDashboardData);
     window.addEventListener('expenses-updated', loadDashboardData);
     window.addEventListener('products-updated', loadDashboardData);
     return () => {
+      if (midnightTimer) clearTimeout(midnightTimer);
+      clearInterval(clockInterval);
       window.removeEventListener('storage', loadDashboardData);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('ghana-time-synced', handleClockSynced);
       window.removeEventListener('transactions-updated', loadDashboardData);
       window.removeEventListener('expenses-updated', loadDashboardData);
       window.removeEventListener('products-updated', loadDashboardData);
@@ -105,7 +160,7 @@ export default function DashboardPage() {
 
   const loadDashboardData = () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getGhanaDateKey();
 
       // 1. Transactions & Sales (Read directly from active localStorage)
       let txns: TransactionWithItems[] = [];
@@ -120,8 +175,14 @@ export default function DashboardPage() {
 
       const completedTxns = (txns || []).filter((t) => t.status === 'completed');
 
-      // Filter only completed transactions that occurred today
-      const todayTxns = completedTxns.filter((t) => Boolean(t.created_at?.startsWith(today)));
+      // Filter only completed transactions that occurred today (Ghana time)
+      const todayTxns = completedTxns
+        .filter((t) => Boolean(t.created_at && getGhanaDateKey(t.created_at) === today))
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      setTodayTxnsList(todayTxns);
 
       const todaySales = todayTxns.reduce((sum, t) => sum + Number(t.total_amount || 0), 0);
       const todayTransactions = todayTxns.length;
@@ -142,7 +203,14 @@ export default function DashboardPage() {
       }
 
       const todayExpenses = (expenses || [])
-        .filter((e) => e.expense_date === today)
+        .filter((e) => {
+          const expKey = e.expense_date
+            ? getGhanaDateKey(e.expense_date)
+            : e.created_at
+              ? getGhanaDateKey(e.created_at)
+              : '';
+          return expKey === today;
+        })
         .reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
       const overallExpenses = (expenses || []).reduce(
@@ -151,11 +219,11 @@ export default function DashboardPage() {
       );
       const overallNetTotal = overallSales - overallExpenses;
 
-      // Group daily totals across all recorded dates
+      // Group daily totals across all recorded dates (Ghana time)
       const dayMap = new Map<string, DailySummaryRow>();
 
       for (const txn of completedTxns) {
-        const dayKey = txn.created_at ? txn.created_at.slice(0, 10) : today;
+        const dayKey = txn.created_at ? getGhanaDateKey(txn.created_at) : today;
         const current = dayMap.get(dayKey) || {
           date: dayKey,
           sales: 0,
@@ -171,9 +239,9 @@ export default function DashboardPage() {
 
       for (const exp of expenses || []) {
         const dayKey = exp.expense_date
-          ? String(exp.expense_date).slice(0, 10)
+          ? getGhanaDateKey(exp.expense_date)
           : exp.created_at
-            ? String(exp.created_at).slice(0, 10)
+            ? getGhanaDateKey(exp.created_at)
             : today;
         const current = dayMap.get(dayKey) || {
           date: dayKey,
@@ -225,9 +293,39 @@ export default function DashboardPage() {
   };
 
   const formatDayLabel = (dateStr: string) => {
-    const parsed = new Date(`${dateStr}T00:00:00`);
-    if (isNaN(parsed.getTime())) return dateStr;
-    return format(parsed, 'MMM dd, yyyy');
+    return formatGhanaDate(dateStr);
+  };
+
+  const preEightAmTodayTxns = todayTxnsList.filter(
+    (t) => getGhanaHour(t.created_at) < 8
+  );
+
+  const handleMoveToYesterday = async (ids: string[], label: string) => {
+    if (!ids.length) return;
+    setIsFixingTimestamps(true);
+    try {
+      const targetTxns = todayTxnsList.filter((t) => ids.includes(t.id));
+      const pre8Ids = targetTxns
+        .filter((t) => getGhanaHour(t.created_at) < 8)
+        .map((t) => t.id);
+      const laterIds = targetTxns
+        .filter((t) => getGhanaHour(t.created_at) >= 8)
+        .map((t) => t.id);
+
+      let count = 0;
+      if (pre8Ids.length > 0) {
+        count += await shiftTransactionsTimestamp(pre8Ids, -8);
+      }
+      if (laterIds.length > 0) {
+        count += await shiftTransactionsTimestamp(laterIds, -24);
+      }
+      loadDashboardData();
+      toast.success(`Moved ${count} ${label} to yesterday in Ghana time`);
+    } catch {
+      toast.error('Failed to update transaction date');
+    } finally {
+      setIsFixingTimestamps(false);
+    }
   };
 
   if (loading) {
@@ -264,7 +362,9 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="text-xs text-muted-foreground font-medium tabular-nums">
-          <span>Today</span>
+          <span>
+            {formatGhanaDate(ghanaNow)} · {formatGhanaShortTime(ghanaNow)} GMT (Ghana)
+          </span>
           <span aria-hidden="true" className="mx-1.5">·</span>
           <span>{stats?.activeDaysCount || 0} day(s) recorded</span>
         </div>
@@ -383,9 +483,51 @@ export default function DashboardPage() {
 
       {/* Today's Metrics */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground tracking-wide">
-          Today&apos;s Overview
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-muted-foreground tracking-wide">
+            Today&apos;s Overview · {formatGhanaDate(ghanaNow)} (Ghana)
+          </h2>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setTodayBreakdownOpen(true)}
+            className="h-8 rounded-lg text-xs font-medium cursor-pointer"
+          >
+            <Clock className="h-3.5 w-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+            View Today&apos;s Sales ({todayTxnsList.length})
+          </Button>
+        </div>
+
+        {preEightAmTodayTxns.length > 0 && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <p>
+                <strong>{preEightAmTodayTxns.length}</strong> sale(s) counted in today&apos;s total have early-morning timestamps (12:00 AM–7:59 AM GMT) from before the Ghana clock fix. If those were yesterday&apos;s evening sales, move them back to yesterday.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isFixingTimestamps}
+                onClick={() =>
+                  handleMoveToYesterday(
+                    preEightAmTodayTxns.map((t) => t.id),
+                    'pre-8AM sale(s)'
+                  )
+                }
+                className="h-8 text-xs font-semibold border-amber-500/50 bg-white/80 dark:bg-slate-900/70 hover:bg-amber-500/15 cursor-pointer"
+              >
+                <History className="h-3.5 w-3.5 mr-1.5" />
+                Move Pre-8AM Sales to Yesterday
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {/* Today's Sales Metric */}
           <Card className="glass-stagger-1 border-2 border-emerald-500/40 dark:border-emerald-400/40 hover:border-emerald-500 rounded-xl shadow-xs">
@@ -710,6 +852,80 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Today's Sales Breakdown Modal */}
+      <Dialog open={todayBreakdownOpen} onOpenChange={setTodayBreakdownOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto glass-modal">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <span>Today&apos;s Counted Sales ({formatGhanaDate(ghanaNow)} · Ghana)</span>
+            </DialogTitle>
+            <DialogDescription>
+              These completed transactions make up Today&apos;s Sales (GH₵{stats?.todaySales.toFixed(2) || '0.00'}). If an entry was recorded yesterday before the clock fix, move it to yesterday.
+            </DialogDescription>
+          </DialogHeader>
+
+          {todayTxnsList.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No completed sales recorded yet today ({formatGhanaDate(ghanaNow)}).
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {todayTxnsList.map((txn) => {
+                const isPre8 = getGhanaHour(txn.created_at) < 8;
+                return (
+                  <div
+                    key={txn.id}
+                    className={`rounded-xl border p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                      isPre8
+                        ? 'border-amber-500/45 bg-amber-500/8'
+                        : 'border-border/80 bg-card/70'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-foreground">
+                          {txn.transaction_number}
+                        </span>
+                        <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                          {formatGhanaShortTime(txn.created_at)} GMT
+                        </span>
+                        {isPre8 && (
+                          <Badge variant="secondary" className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                            Pre-8AM
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {txn.customer_name || 'Walk-in Customer'} · {txn.payment_method.toUpperCase()}
+                        {txn.staff?.username ? ` · ${txn.staff.username}` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
+                      <span className="font-bold tabular-nums text-sm text-foreground">
+                        GH₵{Number(txn.total_amount || 0).toFixed(2)}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isFixingTimestamps}
+                        onClick={() => handleMoveToYesterday([txn.id], 'sale')}
+                        className="h-7 px-2.5 text-xs cursor-pointer"
+                      >
+                        <History className="h-3 w-3 mr-1" />
+                        Move to Yesterday
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   testFirestoreConnection,
   setFirestoreNetworkEnabled,
 } from '@/lib/firebase';
+import { getGhanaNow, getGhanaDateKey, getGhanaYear } from '@/lib/ghanaTime';
 import {
   collection,
   doc,
@@ -182,7 +183,7 @@ const INITIAL_PRODUCTS: Product[] = [
   },
 ];
 
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = getGhanaDateKey();
 
 const INITIAL_EXPENSES: Expense[] = [
   {
@@ -916,18 +917,25 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const expenses = await getExpenses(2000);
   const products = await getAllProducts();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getGhanaDateKey();
 
   const completedTransactions = transactions.filter((t) => t.status === 'completed');
   const todayTransactionsList = completedTransactions.filter((t) => {
-    return Boolean(t.created_at?.startsWith(today));
+    return Boolean(t.created_at && getGhanaDateKey(t.created_at) === today);
   });
 
   const todaySales = todayTransactionsList.reduce((sum, t) => sum + Number(t.total_amount || 0), 0);
   const todayTransactions = todayTransactionsList.length;
 
   const todayExpenses = expenses
-    .filter((e) => e.expense_date === today)
+    .filter((e) => {
+      const expKey = e.expense_date
+        ? getGhanaDateKey(e.expense_date)
+        : e.created_at
+          ? getGhanaDateKey(e.created_at)
+          : '';
+      return expKey === today;
+    })
     .reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
   const lowStockProducts = products.filter((p) => Number(p.stock_quantity ?? 0) <= 10).length;
@@ -939,11 +947,11 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   const activeDays = new Set<string>();
   for (const t of completedTransactions) {
-    if (t.created_at) activeDays.add(t.created_at.slice(0, 10));
+    if (t.created_at) activeDays.add(getGhanaDateKey(t.created_at));
   }
   for (const e of expenses) {
-    if (e.expense_date) activeDays.add(String(e.expense_date).slice(0, 10));
-    else if (e.created_at) activeDays.add(String(e.created_at).slice(0, 10));
+    if (e.expense_date) activeDays.add(getGhanaDateKey(e.expense_date));
+    else if (e.created_at) activeDays.add(getGhanaDateKey(e.created_at));
   }
 
   return {
@@ -989,7 +997,7 @@ export async function createProduct(data: {
     category: data.category.toLowerCase().trim(),
     barcode: data.barcode?.trim() || null,
     image_url: data.image_url?.trim() || null,
-    created_at: new Date().toISOString(),
+    created_at: getGhanaNow().toISOString(),
   };
 
   markPendingWrite(newProduct.id);
@@ -1059,7 +1067,7 @@ export async function createService(data: {
     description: data.description?.trim() || null,
     base_price: Number(data.base_price),
     unit: data.unit.trim(),
-    created_at: new Date().toISOString(),
+    created_at: getGhanaNow().toISOString(),
   };
 
   markPendingWrite(newService.id);
@@ -1142,7 +1150,7 @@ export async function createExpense(
     amount: Number(amount),
     expense_date: expenseDate,
     receipt_notes: receiptNotes?.trim() || null,
-    created_at: new Date().toISOString(),
+    created_at: getGhanaNow().toISOString(),
     staff: {
       username: staff?.username || 'staff',
     },
@@ -1194,6 +1202,34 @@ export async function deleteTransaction(id: string): Promise<void> {
   deleteDocFromCloud('transactions', id);
 }
 
+export async function shiftTransactionsTimestamp(
+  ids: string[],
+  deltaHours = -8
+): Promise<number> {
+  if (!ids.length) return 0;
+  const idSet = new Set(ids);
+  const transactions = getItem<TransactionWithItems[]>(STORAGE_KEYS.TRANSACTIONS, []);
+  let updatedCount = 0;
+
+  const updated = transactions.map((txn) => {
+    if (!idSet.has(txn.id)) return txn;
+    const baseMs = Date.parse(txn.created_at);
+    if (isNaN(baseMs)) return txn;
+    const nextCreatedAt = new Date(baseMs + deltaHours * 3600_000).toISOString();
+    updatedCount++;
+    markPendingWrite(txn.id);
+    syncDocToCloud('transactions', txn.id, { created_at: nextCreatedAt }, true);
+    return { ...txn, created_at: nextCreatedAt };
+  });
+
+  if (updatedCount > 0) {
+    setItem(STORAGE_KEYS.TRANSACTIONS, updated);
+    notifyDataUpdate('transactions-updated');
+  }
+
+  return updatedCount;
+}
+
 export async function createTransaction(
   userId: string,
   transactionType: string,
@@ -1240,7 +1276,7 @@ export async function createTransaction(
   }
   setItem(STORAGE_KEYS.PRODUCTS, updatedProducts);
 
-  const txNum = `TRX-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const txNum = `TRX-${getGhanaYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
   // CRITICAL: Firestore rejects undefined. All optional values must be null or omitted!
   const cleanNotes = notes?.trim() || null;
@@ -1265,7 +1301,7 @@ export async function createTransaction(
     card_last4: hardwareMeta?.card_last4?.trim() || null,
     card_brand: hardwareMeta?.card_brand?.trim() || null,
     auth_code: hardwareMeta?.auth_code?.trim() || null,
-    created_at: new Date().toISOString(),
+    created_at: getGhanaNow().toISOString(),
     items: items.map((it, idx) => ({
       id: `item_${Date.now()}_${idx}`,
       item_type: it.item_type,
