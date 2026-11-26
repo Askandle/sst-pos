@@ -437,7 +437,7 @@ export default function HardwarePage() {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+            <div className="pt-2 border-t border-border/60">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-foreground">Auto-Recognize Cable</p>
@@ -450,19 +450,6 @@ export default function HardwarePage() {
                   onCheckedChange={(checked) =>
                     saveHardwareConfig({ autoConnectPrinters: checked })
                   }
-                />
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Auto-Print After Sale</p>
-                  <p className="text-xs text-muted-foreground">
-                    Sends receipt when checkout finishes
-                  </p>
-                </div>
-                <Switch
-                  checked={config.autoPrintReceipt}
-                  onCheckedChange={(checked) => saveHardwareConfig({ autoPrintReceipt: checked })}
                 />
               </div>
             </div>

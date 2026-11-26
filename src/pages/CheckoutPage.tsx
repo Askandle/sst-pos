@@ -8,7 +8,6 @@ import BarcodeScanControl from '@/components/BarcodeScanControl';
 import { useBarcodeScanner, useHardwareState } from '@/hooks/useBarcodeScanner';
 import {
   addProductByBarcodeToCart,
-  printThermalReceipt,
   parseCardTrackData,
   sendCardTerminalRequest,
   playHardwareBeep,
@@ -194,12 +193,6 @@ export default function CheckoutPage() {
       setCompletedTransaction(newTxn);
       setInvoiceOpen(true);
       toast.success('Transaction completed! Invoice is ready to print.');
-
-      if (hardwareConfig.autoPrintReceipt) {
-        void printThermalReceipt(newTxn).then((printRes) => {
-          toast.info(printRes.message);
-        });
-      }
     } catch (error) {
       console.error('Checkout error:', error);
       toast.error('Failed to process transaction');
