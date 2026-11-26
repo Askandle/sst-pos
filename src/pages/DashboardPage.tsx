@@ -23,6 +23,7 @@ import {
   VolumeX,
   ArrowUpRight,
   Package,
+  Wrench,
   Clock,
   History,
 } from 'lucide-react';
@@ -67,10 +68,23 @@ interface DailySummaryRow {
   net: number;
 }
 
+interface CategoryTotalsSummary {
+  todayRevenue: number;
+  overallRevenue: number;
+}
+
+const EMPTY_CATEGORY_SUMMARY: CategoryTotalsSummary = {
+  todayRevenue: 0,
+  overallRevenue: 0,
+};
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [dailyBreakdown, setDailyBreakdown] = useState<DailySummaryRow[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
+  const [serviceSummary, setServiceSummary] = useState<CategoryTotalsSummary>(EMPTY_CATEGORY_SUMMARY);
+  const [productSummary, setProductSummary] = useState<CategoryTotalsSummary>(EMPTY_CATEGORY_SUMMARY);
+  const [catalogViewFilter, setCatalogViewFilter] = useState<'both' | 'services' | 'products'>('both');
   const [todayTxnsList, setTodayTxnsList] = useState<TransactionWithItems[]>([]);
   const [todayBreakdownOpen, setTodayBreakdownOpen] = useState(false);
   const [isFixingTimestamps, setIsFixingTimestamps] = useState(false);
@@ -259,7 +273,7 @@ export default function DashboardPage() {
         b.date.localeCompare(a.date)
       );
 
-      // 3. Products & Low Stock
+      // 3. Products (for low-stock alert)
       let products: Product[] = [];
       try {
         const storedProducts = localStorage.getItem('netpos_products');
@@ -269,6 +283,49 @@ export default function DashboardPage() {
       } catch (e) {
         console.error('Error parsing products:', e);
       }
+
+      // 4. Separate Services-Only vs Products-Only Revenue Amounts
+      let todaySvcRev = 0;
+      let overallSvcRev = 0;
+      let todayProdRev = 0;
+      let overallProdRev = 0;
+
+      for (const txn of completedTxns) {
+        const isTxnToday = Boolean(txn.created_at && getGhanaDateKey(txn.created_at) === today);
+        const lineItems = txn.items || [];
+
+        if (lineItems.length === 0) {
+          const amt = Number(txn.total_amount || 0);
+          if (txn.transaction_type === 'service') {
+            overallSvcRev += amt;
+            if (isTxnToday) todaySvcRev += amt;
+          } else {
+            overallProdRev += amt;
+            if (isTxnToday) todayProdRev += amt;
+          }
+          continue;
+        }
+
+        for (const item of lineItems) {
+          const rev = Number(item.subtotal || 0);
+          if (item.item_type === 'service') {
+            overallSvcRev += rev;
+            if (isTxnToday) todaySvcRev += rev;
+          } else {
+            overallProdRev += rev;
+            if (isTxnToday) todayProdRev += rev;
+          }
+        }
+      }
+
+      setServiceSummary({
+        todayRevenue: todaySvcRev,
+        overallRevenue: overallSvcRev,
+      });
+      setProductSummary({
+        todayRevenue: todayProdRev,
+        overallRevenue: overallProdRev,
+      });
 
       const lowStock = (products || []).filter((p) => Number(p.stock_quantity ?? 0) <= 10);
 
@@ -592,6 +649,148 @@ export default function DashboardPage() {
               <p className="text-xs text-muted-foreground mt-1">Products need restock</p>
             </CardContent>
           </Card>
+        </div>
+      </section>
+
+      {/* Services Only & Products Only Totals */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-muted-foreground tracking-wide">
+              Services Only &amp; Products Only
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Sales amounts for services only and products only
+            </p>
+          </div>
+
+          <div className="inline-flex items-center rounded-xl border border-border/80 bg-muted/50 p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => setCatalogViewFilter('both')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                catalogViewFilter === 'both'
+                  ? 'bg-background text-foreground shadow-2xs border border-border/60'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Side by Side
+            </button>
+            <button
+              type="button"
+              onClick={() => setCatalogViewFilter('services')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                catalogViewFilter === 'services'
+                  ? 'bg-indigo-600 text-white shadow-2xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Services Only
+            </button>
+            <button
+              type="button"
+              onClick={() => setCatalogViewFilter('products')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                catalogViewFilter === 'products'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Package className="h-3.5 w-3.5" />
+              Products Only
+            </button>
+          </div>
+        </div>
+
+        <div
+          className={
+            catalogViewFilter === 'both'
+              ? 'grid gap-4 lg:grid-cols-2'
+              : 'grid gap-4 grid-cols-1'
+          }
+        >
+          {/* Services Only Amount Card */}
+          {catalogViewFilter !== 'products' && (
+            <Card className="glass-stagger-2 border-2 border-indigo-500/35 dark:border-indigo-400/35 rounded-xl shadow-xs">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <div className="p-1.5 rounded-lg bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
+                    <Wrench className="h-4 w-4" />
+                  </div>
+                  <span>Services Only</span>
+                </CardTitle>
+                <Link
+                  to="/services"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Open Services
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-indigo-500/25 bg-indigo-500/8 p-3.5">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Today Amount
+                    </p>
+                    <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums mt-1">
+                      GH₵{serviceSummary.todayRevenue.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/40 p-3.5">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      All Days Amount
+                    </p>
+                    <p className="text-2xl font-bold text-foreground tabular-nums mt-1">
+                      GH₵{serviceSummary.overallRevenue.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Products Only Amount Card */}
+          {catalogViewFilter !== 'services' && (
+            <Card className="glass-stagger-3 border-2 border-emerald-500/35 dark:border-emerald-400/35 rounded-xl shadow-xs">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    <Package className="h-4 w-4" />
+                  </div>
+                  <span>Products Only</span>
+                </CardTitle>
+                <Link
+                  to="/products"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+                >
+                  Open Products
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 p-3.5">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Today Amount
+                    </p>
+                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tabular-nums mt-1">
+                      GH₵{productSummary.todayRevenue.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/40 p-3.5">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      All Days Amount
+                    </p>
+                    <p className="text-2xl font-bold text-foreground tabular-nums mt-1">
+                      GH₵{productSummary.overallRevenue.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </section>
 
